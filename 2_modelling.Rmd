@@ -1,0 +1,1214 @@
+---
+title: "Modelling"
+author: Gary Nguyen
+output: html_notebook
+params:
+  data_folder: "/Users/nguyenh/Desktop/cumc/deep_learning_for_nlp/data"
+  model_folder: "/Users/nguyenh/Desktop/cumc/deep_learning_for_nlp/model_weights"
+  result_folder: "/Users/nguyenh/Desktop/cumc/deep_learning_for_nlp/results"
+---
+
+Try 5 models for all:
+- GLOVE EMBEDDINGS
+- LSTM + GLOVE
+- LSTM
+- BIDIRECTIONAL RNN
+- RNN
+
+## 0. INITIAL SETUP
+
+```{r installing_packages, echo = FALSE, message = FALSE, warning = FALSE, results = 'hide'}
+
+# Installing packages
+if(!require(devtools, quietly = TRUE)) install.packages('devtools')
+if(!require(pander, quietly = TRUE)) install.packages('pander')
+if(!require(knitr, quietly = TRUE)) install.packages('knitr')
+if(!require(dplyr, quietly = TRUE)) install.packages('dplyr')
+if(!require(tidyr, quietly = TRUE)) install.packages('tidyr')
+if(!require(stringr, quietly = TRUE)) install.packages('stringr')
+if(!require(lubridate, quietly = TRUE)) install.packages('lubridate')
+if(!require(purrr, quietly = TRUE)) install.packages('purrr')
+if(!require(DT, quietly = TRUE)) install.packages('DT')
+if(!require(tidytext, quietly = TRUE)) install.packages('tidytext')
+if(!require(ggplot2, quietly = TRUE)) install.packages('ggplot2')
+if(!require(textstem, quietly = TRUE)) install.packages('textstem')
+if(!require(tm, quietly = TRUE)) install.packages('tm')
+if(!require(splitstackshape, quietly = TRUE)) install.packages('splitstackshape')
+if(!require(text2vec, quietly = TRUE)) install.packages('text2vec')
+if(!require(reshape, quietly = TRUE)) install.packages('reshape')
+if(!require(readr, quietly = TRUE)) install.packages('readr')
+if(!require(zoo, quietly = TRUE)) install.packages('zoo')
+if(!require(keras, quietly = TRUE)) install.packages('keras')
+```
+
+```{r loading_packages, , echo = FALSE, message = FALSE, warning = FALSE, results = 'hide'}
+pkg <- c("devtools",
+         "pander",
+         "knitr",
+         "dplyr",
+         "tidyr",
+         "stringr",
+        "lubridate",
+        "purrr",
+        "DT",
+        "tidytext",
+        "ggplot2",
+        "textstem",
+        "tm",
+        "splitstackshape",
+        "text2vec",
+        "reshape",
+        "readr",
+        "zoo",
+        "keras")
+invisible(lapply(pkg, library, character.only = TRUE))
+options(warn=0)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r loading_data}
+file_path_training_sentence_level <- file.path(params$data_folder, "training_sentence_level.rds")
+training_sentence_level <- readRDS(file_path_training_sentence_level)
+
+file_path_test_sentence_level <- file.path(params$data_folder, "test_sentence_level.rds")
+test_sentence_level <- readRDS(file_path_test_sentence_level)
+
+file_path_training_note_level <- file.path(params$data_folder, "training_note_level.rds")
+training_note_level <- readRDS(file_path_training_note_level)
+
+file_path_test_note_level <- file.path(params$data_folder, "test_note_level.rds")
+test_note_level <- readRDS(file_path_test_note_level)
+```
+
+```{r sourcing_helpers}
+source("/Users/nguyenh/Desktop/cumc/deep_learning_for_nlp/3_helper_functions.R")
+```
+
+```{r model_names}
+model_names <- c("bidirection_rnn",
+                 "lstm",
+                 "rnn",
+                 "ltsm_glove",
+                 "glove")
+```
+
+## 1. SENTENCE LEVEL
+
+## 1A. DYSPNEA MODELS
+
+```{r data_prep_sentence_dyspnea}
+
+max_words <- training_sentence_level %>% 
+  bind_rows(test_sentence_level) %>% 
+  unnest_tokens(output = word, input = note_processed, token = 'words') %>% 
+  pull(word) %>% 
+  unique() %>% 
+  length()
+
+var_grid <- expand.grid(max_length = c(14, 17, 20, 26, 39),
+                        exclude_stop_words = c(TRUE, FALSE))
+
+data_names <- list()
+data_list <- list()
+for(i in 1:nrow(var_grid)){
+  names <- paste("data", "len", var_grid[i,]$max_length, var_grid[i,]$exclude_stop_words, "exclsw", sep = "_")
+  print(names)
+  data <- data_processing(training_sentence_level,
+                          test_sentence_level,
+                          max_length = var_grid[i,]$max_length,
+                          max_words = max_words,
+                          exclude_stop_words = var_grid[i,]$exclude_stop_words,
+                          seed = 1174,
+                          train_validation_split = 0.8,
+                          label = "dyspnea")
+  data_names <- append(data_names, list(names))
+  data_list <- append(data_list, list(data))
+}
+names(data_list) <- data_names
+```
+
+```{r bidirection_rnn_sentence_dyspnea, warning = FALSE}
+dyspnea_result_sentence_bidirectional_rnn <- list()
+dyspnea_history_sentence_bidirectional_rnn <- list()
+for(i in seq_along(data_list)){
+  model_name <- paste("bidirectional_rnn", names(data_list)[i], sep = "_")
+  print(model_name)
+  model <- model_bidirectional_rnn(max_features = max_words,
+                                   optimizer = optimizer_rmsprop(lr = 0.001),
+                                   loss = "binary_crossentropy")
+  result <- train_validate_test(data_list[[i]],
+                                model = model,
+                                epoch = 20,
+                                batch_size = 64,
+                                model_folder = params$model_folder,
+                                label = "dyspnea")
+  dyspnea_result_sentence_bidirectional_rnn <- append(dyspnea_result_sentence_bidirectional_rnn, list(result$result))
+  dyspnea_history_sentence_bidirectional_rnn <- append(dyspnea_result_sentence_bidirectional_rnn, list(result$history))
+}
+names(dyspnea_result_sentence_bidirectional_rnn) <- names(data_list)
+names(dyspnea_history_sentence_bidirectional_rnn) <- names(data_list)
+```
+
+```{r lstm_sentence_dyspnea, warning = FALSE}
+dyspnea_result_sentence_lstm <- list()
+dyspnea_history_sentence_lstm <- list()
+for(i in seq_along(data_list)){
+  model_name <- paste("lstm", names(data_list)[i], sep = "_")
+  print(model_name)
+  model <- model_lstm(max_features = max_words,
+                      optimizer = "rmsprop",
+                      loss = "binary_crossentropy")
+  result <- train_validate_test(data_list[[i]],
+                                model = model,
+                                epoch = 20,
+                                batch_size = 64,
+                                model_folder = params$model_folder,
+                                label = "dyspnea")
+  dyspnea_result_sentence_lstm <- append(dyspnea_result_sentence_lstm, list(result$result))
+  dyspnea_history_sentence_lstm <- append(dyspnea_history_sentence_lstm, list(result$history))
+}
+names(dyspnea_result_sentence_lstm) <- names(data_list)
+names(dyspnea_history_sentence_lstm) <- names(data_list)
+```
+
+```{r rnn_sentence_dyspnea, warning = FALSE}
+dyspnea_result_sentence_rnn <- list()
+dyspnea_history_sentence_rnn <- list()
+for(i in seq_along(data_list)){
+  model_name <- paste("rnn", names(data_list)[i], sep = "_")
+  print(model_name)
+  model <- model_rnn(max_features = max_words,
+                      optimizer = optimizer_adam(lr = 0.001),
+                      loss = "binary_crossentropy")
+  result <- train_validate_test(data_list[[i]],
+                                model = model,
+                                epoch = 20,
+                                batch_size = 64,
+                                model_folder = params$model_folder,
+                                label = "dyspnea")
+  dyspnea_result_sentence_rnn <- append(dyspnea_result_sentence_rnn, list(result$result))
+  dyspnea_history_sentence_rnn <- append(dyspnea_history_sentence_rnn, list(result$history))
+}
+names(dyspnea_result_sentence_rnn) <- names(data_list)
+names(dyspnea_history_sentence_rnn) <- names(data_list)
+```
+
+```{r lstm_glove_sentence_dyspnea, warning = FALSE}
+glove_dir = "/Users/nguyenh/Desktop/cumc/tensorflow_project/glove.6B"
+lines <- readLines(file.path(glove_dir, "glove.6B.100d.txt"))
+embeddings_index <- new.env(hash = TRUE, parent = emptyenv())
+for (i in 1:length(lines)) {
+ line <- lines[[i]]
+ values <- strsplit(line, " ")[[1]]
+ word <- values[[1]]
+ embeddings_index[[word]] <- as.double(values[-1])
+}
+
+dyspnea_result_sentence_lstm_glove <- list()
+dyspnea_history_sentence_lstm_glove <- list()
+for(i in seq_along(data_list)){
+  model_name <- paste("lstm_glove", names(data_list)[i], sep = "_")
+  print(model_name)
+  model <- model_lstm_glove(maxlen = var_grid[i,]$max_length,
+                            max_words = max_words,
+                            embeddings_index = embeddings_index,
+                            word_index = data_list[[i]]$word_index,
+                            optimizer = optimizer_rmsprop(lr = 0.001),
+                            loss = "binary_crossentropy")
+  result <- train_validate_test(data_list[[i]],
+                                model = model,
+                                epoch = 20,
+                                batch_size = 64,
+                                model_folder = params$model_folder,
+                                label = "dyspnea")
+  dyspnea_result_sentence_lstm_glove <- append(dyspnea_result_sentence_lstm_glove, list(result$result))
+  dyspnea_history_sentence_lstm_glove <- append(dyspnea_history_sentence_lstm_glove, list(result$history))
+}
+names(dyspnea_result_sentence_lstm_glove) <- names(data_list)
+names(dyspnea_history_sentence_lstm_glove) <- names(data_list)
+```
+
+```{r glove_sentence_dyspnea, warning = FALSE}
+dyspnea_result_sentence_glove <- list()
+dyspnea_history_sentence_glove <- list()
+for(i in seq_along(data_list)){
+  model_name <- paste("glove", names(data_list)[i], sep = "_")
+  print(model_name)
+  model <- model_glove(maxlen = var_grid[i,]$max_length,
+                       max_words = max_words,
+                       embeddings_index = embeddings_index,
+                       word_index = data_list[[i]]$word_index,
+                       optimizer = "rmsprop",
+                       loss = "binary_crossentropy")
+  result <- train_validate_test(data_list[[i]],
+                                model = model,
+                                epoch = 20,
+                                batch_size = 64,
+                                model_folder = params$model_folder,
+                                label = "dyspnea")
+  dyspnea_result_sentence_glove <- append(dyspnea_result_sentence_glove, list(result$result))
+  dyspnea_history_sentence_glove <- append(dyspnea_history_sentence_glove, list(result$history))
+}
+names(dyspnea_result_sentence_glove) <- names(data_list)
+names(dyspnea_history_sentence_glove) <- names(data_list)
+```
+
+```{r saving_results_sentence_dyspnea}
+dyspnea_result_sentence_level <- list()
+dyspnea_result_sentence_level <- append(dyspnea_result_sentence_level, list(dyspnea_result_sentence_bidirectional_rnn))
+dyspnea_result_sentence_level <- append(dyspnea_result_sentence_level, list(dyspnea_result_sentence_lstm))
+dyspnea_result_sentence_level <- append(dyspnea_result_sentence_level, list(dyspnea_result_sentence_rnn))
+dyspnea_result_sentence_level <- append(dyspnea_result_sentence_level, list(dyspnea_result_sentence_lstm_glove))
+dyspnea_result_sentence_level <- append(dyspnea_result_sentence_level, list(dyspnea_result_sentence_glove))
+
+dyspnea_history_sentence_level <- list()
+dyspnea_history_sentence_level <- append(dyspnea_history_sentence_level, list(dyspnea_history_sentence_bidirectional_rnn))
+dyspnea_history_sentence_level <- append(dyspnea_history_sentence_level, list(dyspnea_history_sentence_lstm))
+dyspnea_history_sentence_level <- append(dyspnea_history_sentence_level, list(dyspnea_history_sentence_rnn))
+dyspnea_history_sentence_level <- append(dyspnea_history_sentence_level, list(dyspnea_history_sentence_lstm_glove))
+dyspnea_history_sentence_level <- append(dyspnea_history_sentence_level, list(dyspnea_history_sentence_glove))
+
+names(dyspnea_result_sentence_level) <- model_names
+names(dyspnea_history_sentence_level) <- model_names
+
+file_path_dyspnea_sentence_level_result <- file.path(params$result_folder, "dyspnea_result_sentence_level.rds")
+saveRDS(dyspnea_result_sentence_level, file_path_dyspnea_sentence_level_result)
+file_path_dyspnea_sentence_level_history <- file.path(params$result_folder, "dyspnea_history_sentence_level.rds")
+saveRDS(dyspnea_history_sentence_level, file_path_dyspnea_sentence_level_history)
+```
+
+## 1B. CHEST PAIN MODELS
+
+```{r data_prep_sentence_chest.pain}
+
+data_names_sentence_chest.pain <- list()
+data_list_sentence_chest.pain <- list()
+for(i in 1:nrow(var_grid)){
+  names <- paste("data", "len", var_grid[i,]$max_length, var_grid[i,]$exclude_stop_words, "exclsw", sep = "_")
+  print(names)
+  data <- data_processing(training_sentence_level,
+                          test_sentence_level,
+                          max_length = var_grid[i,]$max_length,
+                          max_words = max_words,
+                          exclude_stop_words = var_grid[i,]$exclude_stop_words,
+                          seed = 1174,
+                          train_validation_split = 0.8,
+                          label = "chest.pain")
+  data_names_sentence_chest.pain <- append(data_names_sentence_chest.pain, list(names))
+  data_list_sentence_chest.pain <- append(data_list_sentence_chest.pain, list(data))
+}
+names(data_list_sentence_chest.pain) <- data_names_sentence_chest.pain
+```
+
+```{r bidirection_rnn_sentence_chest.pain, warning = FALSE}
+chest.pain_result_sentence_bidirectional_rnn <- list()
+chest.pain_history_sentence_bidirectional_rnn <- list()
+for(i in seq_along(data_list_sentence_chest.pain)){
+  model_name <- paste("bidirectional_rnn", names(data_list_sentence_chest.pain)[i], sep = "_")
+  print(model_name)
+  model <- model_bidirectional_rnn(max_features = max_words,
+                                   optimizer = optimizer_rmsprop(lr = 0.001),
+                                   loss = "binary_crossentropy")
+  result <- train_validate_test(data_list_sentence_chest.pain[[i]],
+                                model = model,
+                                epoch = 20,
+                                batch_size = 64,
+                                model_folder = params$model_folder,
+                                label = "chest.pain")
+  chest.pain_result_sentence_bidirectional_rnn <- append(chest.pain_result_sentence_bidirectional_rnn, list(result$result))
+  chest.pain_history_sentence_bidirectional_rnn <- append(chest.pain_history_sentence_bidirectional_rnn, list(result$history))
+}
+names(chest.pain_result_sentence_bidirectional_rnn) <- names(data_list_sentence_chest.pain)
+names(chest.pain_history_sentence_bidirectional_rnn) <- names(data_list_sentence_chest.pain)
+```
+
+```{r lstm_sentence_chest.pain, warning = FALSE}
+chest.pain_result_sentence_lstm <- list()
+chest.pain_history_sentence_lstm <- list()
+for(i in seq_along(data_list_sentence_chest.pain)){
+  model_name <- paste("lstm", names(data_list_sentence_chest.pain)[i], sep = "_")
+  print(model_name)
+  model <- model_lstm(max_features = max_words,
+                      optimizer = "rmsprop",
+                      loss = "binary_crossentropy")
+  result <- train_validate_test(data_list_sentence_chest.pain[[i]],
+                                model = model,
+                                epoch = 20,
+                                batch_size = 64,
+                                model_folder = params$model_folder,
+                                label = "chest.pain")
+  chest.pain_result_sentence_lstm <- append(chest.pain_result_sentence_lstm, list(result$result))
+  chest.pain_history_sentence_lstm <- append(chest.pain_history_sentence_lstm, list(result$history))
+}
+names(chest.pain_result_sentence_lstm) <- names(data_list_sentence_chest.pain)
+names(chest.pain_history_sentence_lstm) <- names(data_list_sentence_chest.pain)
+```
+
+```{r rnn_sentence_chest.pain, warning = FALSE}
+chest.pain_result_sentence_rnn <- list()
+chest.pain_history_sentence_rnn <- list()
+for(i in seq_along(data_list_sentence_chest.pain)){
+  model_name <- paste("rnn", names(data_list_sentence_chest.pain)[i], sep = "_")
+  print(model_name)
+  model <- model_rnn(max_features = max_words,
+                      optimizer = optimizer_adam(lr = 0.001),
+                      loss = "binary_crossentropy")
+  result <- train_validate_test(data_list_sentence_chest.pain[[i]],
+                                model = model,
+                                epoch = 20,
+                                batch_size = 64,
+                                model_folder = params$model_folder,
+                                label = "chest.pain")
+  chest.pain_result_sentence_rnn <- append(chest.pain_result_sentence_rnn, list(result$result))
+  chest.pain_history_sentence_rnn <- append(chest.pain_history_sentence_rnn, list(result$history))
+}
+names(chest.pain_result_sentence_rnn) <- names(data_list_sentence_chest.pain)
+names(chest.pain_history_sentence_rnn) <- names(data_list_sentence_chest.pain)
+```
+
+```{r lstm_glove_sentence_chest.pain, warning = FALSE}
+chest.pain_result_sentence_lstm_glove <- list()
+chest.pain_history_sentence_lstm_glove <- list()
+for(i in seq_along(data_list_sentence_chest.pain)){
+  model_name <- paste("lstm_glove", names(data_list_sentence_chest.pain)[i], sep = "_")
+  print(model_name)
+  model <- model_lstm_glove(maxlen = var_grid[i,]$max_length,
+                            max_words = max_words,
+                            embeddings_index = embeddings_index,
+                            word_index = data_list_sentence_chest.pain[[i]]$word_index,
+                            optimizer = optimizer_rmsprop(lr = 0.001),
+                            loss = "binary_crossentropy")
+  result <- train_validate_test(data_list_sentence_chest.pain[[i]],
+                                model = model,
+                                epoch = 20,
+                                batch_size = 64,
+                                model_folder = params$model_folder,
+                                label = "chest.pain")
+  chest.pain_result_sentence_lstm_glove <- append(chest.pain_result_sentence_lstm_glove, list(result$result))
+  chest.pain_history_sentence_lstm_glove <- append(chest.pain_history_sentence_lstm_glove, list(result$history))
+}
+names(chest.pain_result_sentence_lstm_glove) <- names(data_list_sentence_chest.pain)
+names(chest.pain_history_sentence_lstm_glove) <- names(data_list_sentence_chest.pain)
+```
+
+```{r glove_sentence_chest.pain, warning = FALSE}
+chest.pain_result_sentence_glove <- list()
+chest.pain_history_sentence_glove <- list()
+for(i in seq_along(data_list_sentence_chest.pain)){
+  model_name <- paste("glove", names(data_list_sentence_chest.pain)[i], sep = "_")
+  print(model_name)
+  model <- model_glove(maxlen = var_grid[i,]$max_length,
+                       max_words = max_words,
+                       embeddings_index = embeddings_index,
+                       word_index = data_list_sentence_chest.pain[[i]]$word_index,
+                       optimizer = "rmsprop",
+                       loss = "binary_crossentropy")
+  result <- train_validate_test(data_list_sentence_chest.pain[[i]],
+                                model = model,
+                                epoch = 20,
+                                batch_size = 64,
+                                model_folder = params$model_folder,
+                                label = "chest.pain")
+  chest.pain_result_sentence_glove <- append(chest.pain_result_sentence_glove, list(result$result))
+  chest.pain_history_sentence_glove <- append(chest.pain_history_sentence_glove, list(result$history))
+}
+names(chest.pain_result_sentence_glove) <- names(data_list_sentence_chest.pain)
+names(chest.pain_history_sentence_glove) <- names(data_list_sentence_chest.pain)
+```
+
+```{r saving_results_sentence_chest.pain}
+chest.pain_result_sentence_level <- list()
+chest.pain_result_sentence_level <- append(chest.pain_result_sentence_level, list(chest.pain_result_sentence_bidirectional_rnn))
+chest.pain_result_sentence_level <- append(chest.pain_result_sentence_level, list(chest.pain_result_sentence_lstm))
+chest.pain_result_sentence_level <- append(chest.pain_result_sentence_level, list(chest.pain_result_sentence_rnn))
+chest.pain_result_sentence_level <- append(chest.pain_result_sentence_level, list(chest.pain_result_sentence_lstm_glove))
+chest.pain_result_sentence_level <- append(chest.pain_result_sentence_level, list(chest.pain_result_sentence_glove))
+
+chest.pain_history_sentence_level <- list()
+chest.pain_history_sentence_level <- append(chest.pain_history_sentence_level, list(chest.pain_history_sentence_bidirectional_rnn))
+chest.pain_history_sentence_level <- append(chest.pain_history_sentence_level, list(chest.pain_history_sentence_lstm))
+chest.pain_history_sentence_level <- append(chest.pain_history_sentence_level, list(chest.pain_history_sentence_rnn))
+chest.pain_history_sentence_level <- append(chest.pain_history_sentence_level, list(chest.pain_history_sentence_lstm_glove))
+chest.pain_history_sentence_level <- append(chest.pain_history_sentence_level, list(chest.pain_history_sentence_glove))
+
+names(chest.pain_result_sentence_level) <- model_names
+names(chest.pain_history_sentence_level) <- model_names
+
+file_path_chest.pain_sentence_level_result <- file.path(params$result_folder, "chest.pain_result_sentence_level.rds")
+saveRDS(chest.pain_result_sentence_level, file_path_chest.pain_sentence_level_result)
+file_path_chest.pain_sentence_level_history <- file.path(params$result_folder, "chest.pain_history_sentence_level.rds")
+saveRDS(chest.pain_history_sentence_level, file_path_chest.pain_sentence_level_history)
+```
+
+## 1C. FATIQUE MODELS
+
+```{r data_prep_sentence_fatique}
+
+data_names_sentence_fatique <- list()
+data_list_sentence_fatique <- list()
+for(i in 1:nrow(var_grid)){
+  names <- paste("data", "len", var_grid[i,]$max_length, var_grid[i,]$exclude_stop_words, "exclsw", sep = "_")
+  print(names)
+  data <- data_processing(training_sentence_level,
+                          test_sentence_level,
+                          max_length = var_grid[i,]$max_length,
+                          max_words = max_words,
+                          exclude_stop_words = var_grid[i,]$exclude_stop_words,
+                          seed = 1174,
+                          train_validation_split = 0.8,
+                          label = "fatique")
+  data_names_sentence_fatique <- append(data_names_sentence_fatique, list(names))
+  data_list_sentence_fatique <- append(data_list_sentence_fatique, list(data))
+}
+names(data_list_sentence_fatique) <- data_names_sentence_fatique
+```
+
+```{r bidirection_rnn_sentence_fatique, warning = FALSE}
+fatique_result_sentence_bidirectional_rnn <- list()
+fatique_history_sentence_bidirectional_rnn <- list()
+for(i in seq_along(data_list_sentence_fatique)){
+  model_name <- paste("bidirectional_rnn", names(data_list_sentence_fatique)[i], sep = "_")
+  print(model_name)
+  model <- model_bidirectional_rnn(max_features = max_words,
+                                   optimizer = optimizer_rmsprop(lr = 0.001),
+                                   loss = "binary_crossentropy")
+  result <- train_validate_test(data_list_sentence_fatique[[i]],
+                                model = model,
+                                epoch = 20,
+                                batch_size = 64,
+                                model_folder = params$model_folder,
+                                label = "fatique")
+  fatique_result_sentence_bidirectional_rnn <- append(fatique_result_sentence_bidirectional_rnn, list(result$result))
+  fatique_history_sentence_bidirectional_rnn <- append(fatique_history_sentence_bidirectional_rnn, list(result$history))
+}
+names(fatique_result_sentence_bidirectional_rnn) <- names(data_list_sentence_fatique)
+names(fatique_history_sentence_bidirectional_rnn) <- names(data_list_sentence_fatique)
+```
+
+```{r lstm_sentence_fatique, warning = FALSE}
+fatique_result_sentence_lstm <- list()
+fatique_history_sentence_lstm <- list()
+for(i in seq_along(data_list_sentence_fatique)){
+  model_name <- paste("lstm", names(data_list_sentence_fatique)[i], sep = "_")
+  print(model_name)
+  model <- model_lstm(max_features = max_words,
+                      optimizer = "rmsprop",
+                      loss = "binary_crossentropy")
+  result <- train_validate_test(data_list_sentence_fatique[[i]],
+                                model = model,
+                                epoch = 20,
+                                batch_size = 64,
+                                model_folder = params$model_folder,
+                                label = "fatique")
+  fatique_result_sentence_lstm <- append(fatique_result_sentence_lstm, list(result$result))
+  fatique_history_sentence_lstm <- append(fatique_history_sentence_lstm, list(result$history))
+}
+names(fatique_result_sentence_lstm) <- names(data_list_sentence_fatique)
+names(fatique_history_sentence_lstm) <- names(data_list_sentence_fatique)
+```
+
+```{r rnn_sentence_fatique, warning = FALSE}
+fatique_result_sentence_rnn <- list()
+fatique_history_sentence_rnn <- list()
+for(i in seq_along(data_list_sentence_fatique)){
+  model_name <- paste("rnn", names(data_list_sentence_fatique)[i], sep = "_")
+  print(model_name)
+  model <- model_rnn(max_features = max_words,
+                      optimizer = optimizer_adam(lr = 0.001),
+                      loss = "binary_crossentropy")
+  result <- train_validate_test(data_list_sentence_fatique[[i]],
+                                model = model,
+                                epoch = 20,
+                                batch_size = 64,
+                                model_folder = params$model_folder,
+                                label = "fatique")
+  fatique_result_sentence_rnn <- append(fatique_result_sentence_rnn, list(result$result))
+  fatique_history_sentence_rnn <- append(fatique_history_sentence_rnn, list(result$history))
+}
+names(fatique_result_sentence_rnn) <- names(data_list_sentence_fatique)
+names(fatique_history_sentence_rnn) <- names(data_list_sentence_fatique)
+```
+
+```{r rnn_sentence_fatique_threshold_confusion_matrix}
+predicted_fatique_rnn_data_len_39_FALSE_exclsw <- model %>% 
+  load_model_weights_hdf5(file.path(params$model_folder, "fatique_rnn_data_len_39_FALSE_exclsw.h5")) %>% 
+  predict(data_list_sentence_multilabel[[10]]$x_test)
+
+predicted_class_fatique_rnn_data_len_39_FALSE_exclsw <- ifelse(predicted_fatique_rnn_data_len_39_FALSE_exclsw >= 0.5, 1, 0)
+
+true_class_fatique_rnn_data_len_39_FALSE_exclsw <- data_list_sentence_fatique[[10]]$y_test
+
+table(predicted_class_fatique_rnn_data_len_39_FALSE_exclsw,
+      true_class_fatique_rnn_data_len_39_FALSE_exclsw)
+```
+
+```{r lstm_glove_sentence_fatique, warning = FALSE}
+fatique_result_sentence_lstm_glove <- list()
+fatique_history_sentence_lstm_glove <- list()
+for(i in seq_along(data_list_sentence_fatique)){
+  model_name <- paste("lstm_glove", names(data_list_sentence_fatique)[i], sep = "_")
+  print(model_name)
+  model <- model_lstm_glove(maxlen = var_grid[i,]$max_length,
+                            max_words = max_words,
+                            embeddings_index = embeddings_index,
+                            word_index = data_list_sentence_fatique[[i]]$word_index,
+                            optimizer = optimizer_rmsprop(lr = 0.001),
+                            loss = "binary_crossentropy")
+  result <- train_validate_test(data_list_sentence_fatique[[i]],
+                                model = model,
+                                epoch = 20,
+                                batch_size = 64,
+                                model_folder = params$model_folder,
+                                label = "fatique")
+  fatique_result_sentence_lstm_glove <- append(fatique_result_sentence_lstm_glove, list(result$result))
+  fatique_history_sentence_lstm_glove <- append(fatique_history_sentence_lstm_glove, list(result$history))
+}
+names(fatique_result_sentence_lstm_glove) <- names(data_list_sentence_fatique)
+names(fatique_history_sentence_lstm_glove) <- names(data_list_sentence_fatique)
+```
+
+```{r glove_sentence_fatique, warning = FALSE}
+fatique_result_sentence_glove <- list()
+fatique_history_sentence_glove <- list()
+for(i in seq_along(data_list_sentence_fatique)){
+  model_name <- paste("glove", names(data_list_sentence_fatique)[i], sep = "_")
+  print(model_name)
+  model <- model_glove(maxlen = var_grid[i,]$max_length,
+                       max_words = max_words,
+                       embeddings_index = embeddings_index,
+                       word_index = data_list_sentence_fatique[[i]]$word_index,
+                       optimizer = "rmsprop",
+                       loss = "binary_crossentropy")
+  result <- train_validate_test(data_list_sentence_fatique[[i]],
+                                model = model,
+                                epoch = 20,
+                                batch_size = 64,
+                                model_folder = params$model_folder,
+                                label = "fatique")
+  fatique_result_sentence_glove <- append(fatique_result_sentence_glove, list(result$result))
+  fatique_history_sentence_glove <- append(fatique_history_sentence_glove, list(result$history))
+}
+names(fatique_result_sentence_glove) <- names(data_list_sentence_fatique)
+names(fatique_history_sentence_glove) <- names(data_list_sentence_fatique)
+```
+
+```{r saving_results_sentence_fatique}
+fatique_result_sentence_level <- list()
+fatique_result_sentence_level <- append(fatique_result_sentence_level, list(fatique_result_sentence_bidirectional_rnn))
+fatique_result_sentence_level <- append(fatique_result_sentence_level, list(fatique_result_sentence_lstm))
+fatique_result_sentence_level <- append(fatique_result_sentence_level, list(fatique_result_sentence_rnn))
+fatique_result_sentence_level <- append(fatique_result_sentence_level, list(fatique_result_sentence_lstm_glove))
+fatique_result_sentence_level <- append(fatique_result_sentence_level, list(fatique_result_sentence_glove))
+
+fatique_history_sentence_level <- list()
+fatique_history_sentence_level <- append(fatique_history_sentence_level, list(fatique_history_sentence_bidirectional_rnn))
+fatique_history_sentence_level <- append(fatique_history_sentence_level, list(fatique_history_sentence_lstm))
+fatique_history_sentence_level <- append(fatique_history_sentence_level, list(fatique_history_sentence_rnn))
+fatique_history_sentence_level <- append(fatique_history_sentence_level, list(fatique_history_sentence_lstm_glove))
+fatique_history_sentence_level <- append(fatique_history_sentence_level, list(fatique_history_sentence_glove))
+
+names(fatique_result_sentence_level) <- model_names
+names(fatique_history_sentence_level) <- model_names
+
+file_path_fatique_sentence_level_result <- file.path(params$result_folder, "fatique_result_sentence_level.rds")
+saveRDS(fatique_result_sentence_level, file_path_fatique_sentence_level_result)
+file_path_fatique_sentence_level_history <- file.path(params$result_folder, "fatique_history_sentence_level.rds")
+saveRDS(fatique_history_sentence_level, file_path_fatique_sentence_level_history)
+```
+
+## 1D. NAUSEA MODELS
+
+```{r data_prep_sentence_nausea}
+
+data_names_sentence_nausea <- list()
+data_list_sentence_nausea <- list()
+for(i in 1:nrow(var_grid)){
+  names <- paste("data", "len", var_grid[i,]$max_length, var_grid[i,]$exclude_stop_words, "exclsw", sep = "_")
+  print(names)
+  data <- data_processing(training_sentence_level,
+                          test_sentence_level,
+                          max_length = var_grid[i,]$max_length,
+                          max_words = max_words,
+                          exclude_stop_words = var_grid[i,]$exclude_stop_words,
+                          seed = 1174,
+                          train_validation_split = 0.8,
+                          label = "nausea")
+  data_names_sentence_nausea <- append(data_names_sentence_nausea, list(names))
+  data_list_sentence_nausea <- append(data_list_sentence_nausea, list(data))
+}
+names(data_list_sentence_nausea) <- data_names_sentence_nausea
+```
+
+```{r bidirection_rnn_sentence_nausea, warning = FALSE}
+nausea_result_sentence_bidirectional_rnn <- list()
+nausea_history_sentence_bidirectional_rnn <- list()
+for(i in seq_along(data_list_sentence_nausea)){
+  model_name <- paste("bidirectional_rnn", names(data_list_sentence_nausea)[i], sep = "_")
+  print(model_name)
+  model <- model_bidirectional_rnn(max_features = max_words,
+                                   optimizer = optimizer_rmsprop(lr = 0.001),
+                                   loss = "binary_crossentropy")
+  result <- train_validate_test(data_list_sentence_nausea[[i]],
+                                model = model,
+                                epoch = 20,
+                                batch_size = 64,
+                                model_folder = params$model_folder,
+                                label = "nausea")
+  nausea_result_sentence_bidirectional_rnn <- append(nausea_result_sentence_bidirectional_rnn, list(result$result))
+  nausea_history_sentence_bidirectional_rnn <- append(nausea_history_sentence_bidirectional_rnn, list(result$history))
+}
+names(nausea_result_sentence_bidirectional_rnn) <- names(data_list_sentence_nausea)
+names(nausea_history_sentence_bidirectional_rnn) <- names(data_list_sentence_nausea)
+```
+
+```{r lstm_sentence_nausea, warning = FALSE}
+nausea_result_sentence_lstm <- list()
+nausea_history_sentence_lstm <- list()
+for(i in seq_along(data_list_sentence_nausea)){
+  model_name <- paste("lstm", names(data_list_sentence_nausea)[i], sep = "_")
+  print(model_name)
+  model <- model_lstm(max_features = max_words,
+                      optimizer = "rmsprop",
+                      loss = "binary_crossentropy")
+  result <- train_validate_test(data_list_sentence_nausea[[i]],
+                                model = model,
+                                epoch = 20,
+                                batch_size = 64,
+                                model_folder = params$model_folder,
+                                label = "nausea")
+  nausea_result_sentence_lstm <- append(nausea_result_sentence_lstm, list(result$result))
+  nausea_history_sentence_lstm <- append(nausea_history_sentence_lstm, list(result$history))
+}
+names(nausea_result_sentence_lstm) <- names(data_list_sentence_nausea)
+names(nausea_history_sentence_lstm) <- names(data_list_sentence_nausea)
+```
+
+```{r rnn_sentence_nausea, warning = FALSE}
+nausea_result_sentence_rnn <- list()
+nausea_history_sentence_rnn <- list()
+for(i in seq_along(data_list_sentence_nausea)){
+  model_name <- paste("rnn", names(data_list_sentence_nausea)[i], sep = "_")
+  print(model_name)
+  model <- model_rnn(max_features = max_words,
+                      optimizer = optimizer_adam(lr = 0.001),
+                      loss = "binary_crossentropy")
+  result <- train_validate_test(data_list_sentence_nausea[[i]],
+                                model = model,
+                                epoch = 20,
+                                batch_size = 64,
+                                model_folder = params$model_folder,
+                                label = "nausea")
+  nausea_result_sentence_rnn <- append(nausea_result_sentence_rnn, list(result$result))
+  nausea_history_sentence_rnn <- append(nausea_history_sentence_rnn, list(result$history))
+}
+names(nausea_result_sentence_rnn) <- names(data_list_sentence_nausea)
+names(nausea_history_sentence_rnn) <- names(data_list_sentence_nausea)
+```
+
+```{r lstm_glove_sentence_nausea, warning = FALSE}
+nausea_result_sentence_lstm_glove <- list()
+nausea_history_sentence_lstm_glove <- list()
+for(i in seq_along(data_list_sentence_nausea)){
+  model_name <- paste("lstm_glove", names(data_list_sentence_nausea)[i], sep = "_")
+  print(model_name)
+  model <- model_lstm_glove(maxlen = var_grid[i,]$max_length,
+                            max_words = max_words,
+                            embeddings_index = embeddings_index,
+                            word_index = data_list_sentence_nausea[[i]]$word_index,
+                            optimizer = optimizer_rmsprop(lr = 0.001),
+                            loss = "binary_crossentropy")
+  result <- train_validate_test(data_list_sentence_nausea[[i]],
+                                model = model,
+                                epoch = 20,
+                                batch_size = 64,
+                                model_folder = params$model_folder,
+                                label = "nausea")
+  nausea_result_sentence_lstm_glove <- append(nausea_result_sentence_lstm_glove, list(result$result))
+  nausea_history_sentence_lstm_glove <- append(nausea_history_sentence_lstm_glove, list(result$history))
+}
+names(nausea_result_sentence_lstm_glove) <- names(data_list_sentence_nausea)
+names(nausea_history_sentence_lstm_glove) <- names(data_list_sentence_nausea)
+```
+
+```{r glove_sentence_nausea, warning = FALSE}
+nausea_result_sentence_glove <- list()
+nausea_history_sentence_glove <- list()
+for(i in seq_along(data_list_sentence_nausea)){
+  model_name <- paste("glove", names(data_list_sentence_nausea)[i], sep = "_")
+  print(model_name)
+  model <- model_glove(maxlen = var_grid[i,]$max_length,
+                       max_words = max_words,
+                       embeddings_index = embeddings_index,
+                       word_index = data_list_sentence_nausea[[i]]$word_index,
+                       optimizer = "rmsprop",
+                       loss = "binary_crossentropy")
+  result <- train_validate_test(data_list_sentence_nausea[[i]],
+                                model = model,
+                                epoch = 20,
+                                batch_size = 64,
+                                model_folder = params$model_folder,
+                                label = "nausea")
+  nausea_result_sentence_glove <- append(nausea_result_sentence_glove, list(result$result))
+  nausea_history_sentence_glove <- append(nausea_history_sentence_glove, list(result$history))
+}
+names(nausea_result_sentence_glove) <- names(data_list_sentence_nausea)
+names(nausea_history_sentence_glove) <- names(data_list_sentence_nausea)
+```
+
+```{r saving_results_sentence_nausea}
+nausea_result_sentence_level <- list()
+nausea_result_sentence_level <- append(nausea_result_sentence_level, list(nausea_result_sentence_bidirectional_rnn))
+nausea_result_sentence_level <- append(nausea_result_sentence_level, list(nausea_result_sentence_lstm))
+nausea_result_sentence_level <- append(nausea_result_sentence_level, list(nausea_result_sentence_rnn))
+nausea_result_sentence_level <- append(nausea_result_sentence_level, list(nausea_result_sentence_lstm_glove))
+nausea_result_sentence_level <- append(nausea_result_sentence_level, list(nausea_result_sentence_glove))
+
+nausea_history_sentence_level <- list()
+nausea_history_sentence_level <- append(nausea_history_sentence_level, list(nausea_history_sentence_bidirectional_rnn))
+nausea_history_sentence_level <- append(nausea_history_sentence_level, list(nausea_history_sentence_lstm))
+nausea_history_sentence_level <- append(nausea_history_sentence_level, list(nausea_history_sentence_rnn))
+nausea_history_sentence_level <- append(nausea_history_sentence_level, list(nausea_history_sentence_lstm_glove))
+nausea_history_sentence_level <- append(nausea_history_sentence_level, list(nausea_history_sentence_glove))
+
+names(nausea_result_sentence_level) <- model_names
+names(nausea_history_sentence_level) <- model_names
+
+file_path_nausea_sentence_level_result <- file.path(params$result_folder, "nausea_result_sentence_level.rds")
+saveRDS(nausea_result_sentence_level, file_path_nausea_sentence_level_result)
+file_path_nausea_sentence_level_history <- file.path(params$result_folder, "nausea_history_sentence_level.rds")
+saveRDS(nausea_history_sentence_level, file_path_nausea_sentence_level_history)
+```
+
+## 1E. COUGH MODELS
+
+```{r data_prep_sentence_cough}
+
+data_names_sentence_cough <- list()
+data_list_sentence_cough <- list()
+for(i in 1:nrow(var_grid)){
+  names <- paste("data", "len", var_grid[i,]$max_length, var_grid[i,]$exclude_stop_words, "exclsw", sep = "_")
+  print(names)
+  data <- data_processing(training_sentence_level,
+                          test_sentence_level,
+                          max_length = var_grid[i,]$max_length,
+                          max_words = max_words,
+                          exclude_stop_words = var_grid[i,]$exclude_stop_words,
+                          seed = 1174,
+                          train_validation_split = 0.8,
+                          label = "cough")
+  data_names_sentence_cough <- append(data_names_sentence_cough, list(names))
+  data_list_sentence_cough <- append(data_list_sentence_cough, list(data))
+}
+names(data_list_sentence_cough) <- data_names_sentence_cough
+```
+
+```{r bidirection_rnn_sentence_cough, warning = FALSE}
+cough_result_sentence_bidirectional_rnn <- list()
+cough_history_sentence_bidirectional_rnn <- list()
+for(i in seq_along(data_list_sentence_cough)){
+  model_name <- paste("bidirectional_rnn", names(data_list_sentence_cough)[i], sep = "_")
+  print(model_name)
+  model <- model_bidirectional_rnn(max_features = max_words,
+                                   optimizer = optimizer_rmsprop(lr = 0.001),
+                                   loss = "binary_crossentropy")
+  result <- train_validate_test(data_list_sentence_cough[[i]],
+                                model = model,
+                                epoch = 20,
+                                batch_size = 64,
+                                model_folder = params$model_folder,
+                                label = "cough")
+  cough_result_sentence_bidirectional_rnn <- append(cough_result_sentence_bidirectional_rnn, list(result$result))
+  cough_history_sentence_bidirectional_rnn <- append(cough_history_sentence_bidirectional_rnn, list(result$history))
+}
+names(cough_result_sentence_bidirectional_rnn) <- names(data_list_sentence_cough)
+names(cough_history_sentence_bidirectional_rnn) <- names(data_list_sentence_cough)
+```
+
+```{r lstm_sentence_cough, warning = FALSE}
+cough_result_sentence_lstm <- list()
+cough_history_sentence_lstm <- list()
+for(i in seq_along(data_list_sentence_cough)){
+  model_name <- paste("lstm", names(data_list_sentence_cough)[i], sep = "_")
+  print(model_name)
+  model <- model_lstm(max_features = max_words,
+                      optimizer = "rmsprop",
+                      loss = "binary_crossentropy")
+  result <- train_validate_test(data_list_sentence_cough[[i]],
+                                model = model,
+                                epoch = 20,
+                                batch_size = 64,
+                                model_folder = params$model_folder,
+                                label = "cough")
+  cough_result_sentence_lstm <- append(cough_result_sentence_lstm, list(result$result))
+  cough_history_sentence_lstm <- append(cough_history_sentence_lstm, list(result$history))
+}
+names(cough_result_sentence_lstm) <- names(data_list_sentence_cough)
+names(cough_history_sentence_lstm) <- names(data_list_sentence_cough)
+```
+
+```{r rnn_sentence_cough, warning = FALSE}
+cough_result_sentence_rnn <- list()
+cough_history_sentence_rnn <- list()
+for(i in seq_along(data_list_sentence_cough)){
+  model_name <- paste("rnn", names(data_list_sentence_cough)[i], sep = "_")
+  print(model_name)
+  model <- model_rnn(max_features = max_words,
+                      optimizer = optimizer_adam(lr = 0.001),
+                      loss = "binary_crossentropy")
+  result <- train_validate_test(data_list_sentence_cough[[i]],
+                                model = model,
+                                epoch = 20,
+                                batch_size = 64,
+                                model_folder = params$model_folder,
+                                label = "cough")
+  cough_result_sentence_rnn <- append(cough_result_sentence_rnn, list(result$result))
+  cough_history_sentence_rnn <- append(cough_history_sentence_rnn, list(result$history))
+}
+names(cough_result_sentence_rnn) <- names(data_list_sentence_cough)
+names(cough_history_sentence_rnn) <- names(data_list_sentence_cough)
+```
+
+```{r lstm_glove_sentence_cough, warning = FALSE}
+cough_result_sentence_lstm_glove <- list()
+cough_history_sentence_lstm_glove <- list()
+for(i in seq_along(data_list_sentence_cough)){
+  model_name <- paste("lstm_glove", names(data_list_sentence_cough)[i], sep = "_")
+  print(model_name)
+  model <- model_lstm_glove(maxlen = var_grid[i,]$max_length,
+                            max_words = max_words,
+                            embeddings_index = embeddings_index,
+                            word_index = data_list_sentence_cough[[i]]$word_index,
+                            optimizer = optimizer_rmsprop(lr = 0.001),
+                            loss = "binary_crossentropy")
+  result <- train_validate_test(data_list_sentence_cough[[i]],
+                                model = model,
+                                epoch = 20,
+                                batch_size = 64,
+                                model_folder = params$model_folder,
+                                label = "cough")
+  cough_result_sentence_lstm_glove <- append(cough_result_sentence_lstm_glove, list(result$result))
+  cough_history_sentence_lstm_glove <- append(cough_history_sentence_lstm_glove, list(result$history))
+}
+names(cough_result_sentence_lstm_glove) <- names(data_list_sentence_cough)
+names(cough_history_sentence_lstm_glove) <- names(data_list_sentence_cough)
+```
+
+```{r glove_sentence_cough, warning = FALSE}
+cough_result_sentence_glove <- list()
+cough_history_sentence_glove <- list()
+for(i in seq_along(data_list_sentence_cough)){
+  model_name <- paste("glove", names(data_list_sentence_cough)[i], sep = "_")
+  print(model_name)
+  model <- model_glove(maxlen = var_grid[i,]$max_length,
+                       max_words = max_words,
+                       embeddings_index = embeddings_index,
+                       word_index = data_list_sentence_cough[[i]]$word_index,
+                       optimizer = "rmsprop",
+                       loss = "binary_crossentropy")
+  result <- train_validate_test(data_list_sentence_cough[[i]],
+                                model = model,
+                                epoch = 20,
+                                batch_size = 64,
+                                model_folder = params$model_folder,
+                                label = "cough")
+  cough_result_sentence_glove <- append(cough_result_sentence_glove, list(result$result))
+  cough_history_sentence_glove <- append(cough_history_sentence_glove, list(result$history))
+}
+names(cough_result_sentence_glove) <- names(data_list_sentence_cough)
+names(cough_history_sentence_glove) <- names(data_list_sentence_cough)
+```
+
+```{r saving_results_sentence_cough}
+cough_result_sentence_level <- list()
+cough_result_sentence_level <- append(cough_result_sentence_level, list(cough_result_sentence_bidirectional_rnn))
+cough_result_sentence_level <- append(cough_result_sentence_level, list(cough_result_sentence_lstm))
+cough_result_sentence_level <- append(cough_result_sentence_level, list(cough_result_sentence_rnn))
+cough_result_sentence_level <- append(cough_result_sentence_level, list(cough_result_sentence_lstm_glove))
+cough_result_sentence_level <- append(cough_result_sentence_level, list(cough_result_sentence_glove))
+
+cough_history_sentence_level <- list()
+cough_history_sentence_level <- append(cough_history_sentence_level, list(cough_history_sentence_bidirectional_rnn))
+cough_history_sentence_level <- append(cough_history_sentence_level, list(cough_history_sentence_lstm))
+cough_history_sentence_level <- append(cough_history_sentence_level, list(cough_history_sentence_rnn))
+cough_history_sentence_level <- append(cough_history_sentence_level, list(cough_history_sentence_lstm_glove))
+cough_history_sentence_level <- append(cough_history_sentence_level, list(cough_history_sentence_glove))
+
+names(cough_result_sentence_level) <- model_names
+names(cough_history_sentence_level) <- model_names
+
+file_path_cough_sentence_level_result <- file.path(params$result_folder, "cough_result_sentence_level.rds")
+saveRDS(cough_result_sentence_level, file_path_cough_sentence_level_result)
+file_path_cough_sentence_level_history <- file.path(params$result_folder, "cough_history_sentence_level.rds")
+saveRDS(cough_history_sentence_level, file_path_cough_sentence_level_history)
+```
+
+## 1F. MULTILABEL MODELS
+
+```{r data_prep_sentence_multilabel}
+
+data_names_sentence_multilabel <- list()
+data_list_sentence_multilabel <- list()
+for(i in 1:nrow(var_grid)){
+  names <- paste("data", "len", var_grid[i,]$max_length, var_grid[i,]$exclude_stop_words, "exclsw", sep = "_")
+  print(names)
+  data <- data_processing_multilabel(training_sentence_level,
+                                     test_sentence_level,
+                                     max_length = var_grid[i,]$max_length,
+                                     max_words = max_words,
+                                     exclude_stop_words = var_grid[i,]$exclude_stop_words,
+                                     seed = 1174,
+                                     train_validation_split = 0.8)
+  data_names_sentence_multilabel <- append(data_names_sentence_multilabel, list(names))
+  data_list_sentence_multilabel <- append(data_list_sentence_multilabel, list(data))
+}
+names(data_list_sentence_multilabel) <- data_names_sentence_multilabel
+```
+
+```{r bidirection_rnn_sentence_multilabel, warning = FALSE}
+multilabel_result_sentence_bidirectional_rnn <- list()
+multilabel_history_sentence_bidirectional_rnn <- list()
+
+for(i in seq_along(data_list_sentence_multilabel)){
+  model_name <- paste("bidirectional_rnn", names(data_list_sentence_multilabel)[i], sep = "_")
+  print(model_name)
+  model <- model_bidirectional_rnn(max_features = max_words,
+                                   optimizer = optimizer_rmsprop(lr = 0.001),
+                                   loss = "binary_crossentropy",
+                                   output_unit = 5)
+  result <- train_validate_test(data_list_sentence_multilabel[[i]],
+                                model = model,
+                                epoch = 20,
+                                batch_size = 64,
+                                model_folder = params$model_folder,
+                                label = "multilabel")
+  multilabel_result_sentence_bidirectional_rnn <- append(multilabel_result_sentence_bidirectional_rnn, list(result$result))
+  multilabel_history_sentence_bidirectional_rnn <- append(multilabel_history_sentence_bidirectional_rnn, list(result$history))
+}
+
+names(multilabel_result_sentence_bidirectional_rnn) <- names(data_list_sentence_multilabel)
+names(multilabel_history_sentence_bidirectional_rnn) <- names(data_list_sentence_multilabel)
+```
+
+```{r lstm_sentence_multilabel, warning = FALSE}
+multilabel_result_sentence_lstm <- list()
+multilabel_history_sentence_lstm <- list()
+for(i in seq_along(data_list_sentence_multilabel)){
+  model_name <- paste("lstm", names(data_list_sentence_multilabel)[i], sep = "_")
+  print(model_name)
+  model <- model_lstm(max_features = max_words,
+                      optimizer = "rmsprop",
+                      loss = "binary_crossentropy",
+                      output_unit = 5)
+  result <- train_validate_test(data_list_sentence_multilabel[[i]],
+                                model = model,
+                                epoch = 20,
+                                batch_size = 64,
+                                model_folder = params$model_folder,
+                                label = "multilabel")
+  multilabel_result_sentence_lstm <- append(multilabel_result_sentence_lstm, list(result$result))
+  multilabel_history_sentence_lstm <- append(multilabel_history_sentence_lstm, list(result$history))
+}
+names(multilabel_result_sentence_lstm) <- names(data_list_sentence_chest.pain)
+names(multilabel_history_sentence_lstm) <- names(data_list_sentence_chest.pain)
+```
+
+```{r lstm_sentence_multilabel_threshold_confusion_matrix}
+predicted_multilabel_lstm_data_len_39_TRUE_exclsw <- model %>% 
+  load_model_weights_hdf5(file.path(params$model_folder, "multilabel_lstm_data_len_39_TRUE_exclsw.h5")) %>% 
+  predict(data_list_sentence_multilabel[[5]]$x_test)
+
+predicted_class_multilabel_lstm_data_len_39_TRUE_exclsw <- ifelse(predicted_multilabel_lstm_data_len_39_TRUE_exclsw >= 0.5, 1, 0)
+
+true_class_multilabel_lstm_data_len_39_TRUE_exclsw <- data_list_sentence_multilabel[[5]]$y_test
+table(predicted_class_multilabel_lstm_data_len_39_TRUE_exclsw,
+      true_class_multilabel_lstm_data_len_39_TRUE_exclsw)
+```
+
+```{r rnn_sentence_multilabel, warning = FALSE}
+multilabel_result_sentence_rnn <- list()
+multilabel_history_sentence_rnn <- list()
+for(i in seq_along(data_list_sentence_multilabel)){
+  model_name <- paste("rnn", names(data_list_sentence_multilabel)[i], sep = "_")
+  print(model_name)
+  model <- model_rnn(max_features = max_words,
+                     optimizer = optimizer_adam(lr = 0.001),
+                     loss = "binary_crossentropy",
+                     output_unit = 5)
+  result <- train_validate_test(data_list_sentence_multilabel[[i]],
+                                model = model,
+                                epoch = 20,
+                                batch_size = 64,
+                                model_folder = params$model_folder,
+                                label = "multilabel")
+  multilabel_result_sentence_rnn <- append(multilabel_result_sentence_rnn, list(result$result))
+  multilabel_history_sentence_rnn <- append(multilabel_history_sentence_rnn, list(result$history))
+}
+names(multilabel_result_sentence_rnn) <- names(data_list_sentence_multilabel)
+names(multilabel_history_sentence_rnn) <- names(data_list_sentence_multilabel)
+```
+
+```{r rnn_sentence_multilabel_threshold_confusion_matrix}
+predicted_multilabel_rnn_data_len_39_TRUE_exclsw <- model %>% 
+  load_model_weights_hdf5(file.path(params$model_folder, "multilabel_rnn_data_len_39_TRUE_exclsw.h5")) %>% 
+  predict(data_list_sentence_multilabel[[5]]$x_test)
+
+predicted_class_multilabel_rnn_data_len_39_TRUE_exclsw <- ifelse(predicted_multilabel_rnn_data_len_39_TRUE_exclsw >= 0.5, 1, 0)
+
+true_class_multilabel_rnn_data_len_39_TRUE_exclsw <- data_list_sentence_multilabel[[5]]$y_test
+
+table(predicted_class_multilabel_rnn_data_len_39_TRUE_exclsw,
+      true_class_multilabel_rnn_data_len_39_TRUE_exclsw)
+```
+
+```{r lstm_glove_sentence_multilabel, warning = FALSE}
+multilabel_result_sentence_lstm_glove <- list()
+multilabel_history_sentence_lstm_glove <- list()
+for(i in seq_along(data_list_sentence_multilabel)){
+  model_name <- paste("lstm_glove", names(data_list_sentence_multilabel)[i], sep = "_")
+  print(model_name)
+  model <- model_lstm_glove(maxlen = var_grid[i,]$max_length,
+                            max_words = max_words,
+                            embeddings_index = embeddings_index,
+                            word_index = data_list_sentence_multilabel[[i]]$word_index,
+                            optimizer = optimizer_rmsprop(lr = 0.001),
+                            loss = "binary_crossentropy",
+                            output_unit = 5)
+  result <- train_validate_test(data_list_sentence_multilabel[[i]],
+                                model = model,
+                                epoch = 20,
+                                batch_size = 64,
+                                model_folder = params$model_folder,
+                                label = "multilabel")
+  multilabel_result_sentence_lstm_glove <- append(multilabel_result_sentence_lstm_glove, list(result$result))
+  multilabel_history_sentence_lstm_glove <- append(multilabel_history_sentence_lstm_glove, list(result$history))
+}
+names(multilabel_result_sentence_lstm_glove) <- names(data_list_sentence_multilabel)
+names(multilabel_history_sentence_lstm_glove) <- names(data_list_sentence_multilabel)
+```
+
+```{r glove_sentence_multilabel, warning = FALSE}
+multilabel_result_sentence_glove <- list()
+multilabel_history_sentence_glove <- list()
+for(i in seq_along(data_list_sentence_multilabel)){
+  model_name <- paste("glove", names(data_list_sentence_multilabel)[i], sep = "_")
+  print(model_name)
+  model <- model_glove(maxlen = var_grid[i,]$max_length,
+                       max_words = max_words,
+                       embeddings_index = embeddings_index,
+                       word_index = data_list_sentence_multilabel[[i]]$word_index,
+                       optimizer = "rmsprop",
+                       loss = "binary_crossentropy",
+                       output_unit = 5)
+  result <- train_validate_test(data_list_sentence_multilabel[[i]],
+                                model = model,
+                                epoch = 20,
+                                batch_size = 64,
+                                model_folder = params$model_folder,
+                                label = "multilabel")
+  multilabel_result_sentence_glove <- append(multilabel_result_sentence_glove, list(result$result))
+  multilabel_history_sentence_glove <- append(multilabel_history_sentence_glove, list(result$history))
+}
+names(multilabel_result_sentence_glove) <- names(data_list_sentence_multilabel)
+names(multilabel_history_sentence_glove) <- names(data_list_sentence_multilabel)
+```
+
+```{r saving_results_sentence_multilabel}
+multilabel_result_sentence_level <- list()
+multilabel_result_sentence_level <- append(multilabel_result_sentence_level, list(multilabel_result_sentence_bidirectional_rnn))
+multilabel_result_sentence_level <- append(multilabel_result_sentence_level, list(multilabel_result_sentence_lstm))
+multilabel_result_sentence_level <- append(multilabel_result_sentence_level, list(multilabel_result_sentence_rnn))
+multilabel_result_sentence_level <- append(multilabel_result_sentence_level, list(multilabel_result_sentence_lstm_glove))
+multilabel_result_sentence_level <- append(multilabel_result_sentence_level, list(multilabel_result_sentence_glove))
+
+multilabel_history_sentence_level <- list()
+multilabel_history_sentence_level <- append(multilabel_history_sentence_level, list(multilabel_history_sentence_bidirectional_rnn))
+multilabel_history_sentence_level <- append(multilabel_history_sentence_level, list(multilabel_history_sentence_lstm))
+multilabel_history_sentence_level <- append(multilabel_history_sentence_level, list(multilabel_history_sentence_rnn))
+multilabel_history_sentence_level <- append(multilabel_history_sentence_level, list(multilabel_history_sentence_lstm_glove))
+multilabel_history_sentence_level <- append(multilabel_history_sentence_level, list(multilabel_history_sentence_glove))
+
+names(multilabel_result_sentence_level) <- model_names
+names(multilabel_history_sentence_level) <- model_names
+
+file_path_multilabel_sentence_level_result <- file.path(params$result_folder, "multilabel_result_sentence_level.rds")
+saveRDS(multilabel_result_sentence_level, file_path_multilabel_sentence_level_result)
+file_path_multilabel_sentence_level_history <- file.path(params$result_folder, "multilabel_history_sentence_level.rds")
+saveRDS(multilabel_history_sentence_level, file_path_multilabel_sentence_level_history)
+```
+
+## 2. NOTE LEVEL
+
+## 2A. DYSPNEA MODELS
+
+```{r data_prep_note_dyspnea}
+
+max_words_note <- training_note_level %>% 
+  bind_rows(test_note_level) %>% 
+  unnest_tokens(output = word, input = note_processed, token = 'words') %>% 
+  pull(word) %>% 
+  unique() %>% 
+  length()
+
+var_grid_note <- expand.grid(max_length = c(1256, 1429, 1631, 1892, 2335),
+                             exclude_stop_words = c(TRUE, FALSE))
+
+data_names_note_dyspnea <- list()
+data_list_note_dyspnea <- list()
+for(i in 1:nrow(var_grid_note)){
+  names <- paste("data", 
+                 "len", 
+                 var_grid_note[i,]$max_length, 
+                 var_grid_note[i,]$exclude_stop_words, 
+                 "exclsw", 
+                 sep = "_")
+  print(names)
+  data <- data_processing(training_note_level,
+                          test_note_level,
+                          max_length = var_grid_note[i,]$max_length,
+                          max_words = max_words_note,
+                          exclude_stop_words = var_grid_note[i,]$exclude_stop_words,
+                          seed = 1174,
+                          train_validation_split = 0.8,
+                          label = "dyspnea")
+  data_names_note_dyspnea <- append(data_names_note_dyspnea, list(names))
+  data_list_note_dyspnea <- append(data_list_note_dyspnea, list(data))
+}
+names(data_list_note_dyspnea) <- data_names_note_dyspnea
+```
+
+```{r bidirection_rnn_note_dyspnea, warning = FALSE}
+dyspnea_result_note_bidirectional_rnn <- list()
+dyspnea_history_note_bidirectional_rnn <- list()
+for(i in seq_along(data_list_note_dyspnea)){
+  model_name <- paste("bidirectional_rnn", names(data_list_note_dyspnea)[i], sep = "_")
+  print(model_name)
+  model <- model_bidirectional_rnn(max_features = max_words_note,
+                                   optimizer = optimizer_rmsprop(lr = 0.001),
+                                   loss = "binary_crossentropy")
+  result <- train_validate_test(data_list_note_dyspnea[[i]],
+                                model = model,
+                                epoch = 20,
+                                batch_size = 64,
+                                model_folder = params$model_folder,
+                                label = "dyspnea")
+  dyspnea_result_note_bidirectional_rnn <- append(dyspnea_result_note_bidirectional_rnn, list(result$result))
+  dyspnea_history_note_bidirectional_rnn <- append(dyspnea_history_note_bidirectional_rnn, list(result$history))
+}
+names(dyspnea_result_note_bidirectional_rnn) <- names(data_list_note_dyspnea)
+names(dyspnea_history_note_bidirectional_rnn) <- names(data_list_note_dyspnea)
+```
+
+
+
+
+
+
+
+
+
+
+
+

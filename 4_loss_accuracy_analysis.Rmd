@@ -1,0 +1,141 @@
+---
+title: "Loss and Accuracy Analysis"
+author: Gary Nguyen
+output: html_notebook
+params:
+  data_folder: "/Users/nguyenh/Desktop/cumc/deep_learning_for_nlp/data"
+  model_folder: "/Users/nguyenh/Desktop/cumc/deep_learning_for_nlp/model_weights"
+  result_folder: "/Users/nguyenh/Desktop/cumc/deep_learning_for_nlp/results"
+---
+
+## 0. INITIAL SETUP
+
+```{r installing_packages, echo = FALSE, message = FALSE, warning = FALSE, results = 'hide'}
+
+# Installing packages
+if(!require(devtools, quietly = TRUE)) install.packages('devtools')
+if(!require(pander, quietly = TRUE)) install.packages('pander')
+if(!require(knitr, quietly = TRUE)) install.packages('knitr')
+if(!require(dplyr, quietly = TRUE)) install.packages('dplyr')
+if(!require(tidyr, quietly = TRUE)) install.packages('tidyr')
+if(!require(stringr, quietly = TRUE)) install.packages('stringr')
+if(!require(lubridate, quietly = TRUE)) install.packages('lubridate')
+if(!require(purrr, quietly = TRUE)) install.packages('purrr')
+if(!require(DT, quietly = TRUE)) install.packages('DT')
+if(!require(tidytext, quietly = TRUE)) install.packages('tidytext')
+if(!require(ggplot2, quietly = TRUE)) install.packages('ggplot2')
+if(!require(textstem, quietly = TRUE)) install.packages('textstem')
+if(!require(tm, quietly = TRUE)) install.packages('tm')
+if(!require(splitstackshape, quietly = TRUE)) install.packages('splitstackshape')
+if(!require(text2vec, quietly = TRUE)) install.packages('text2vec')
+if(!require(reshape, quietly = TRUE)) install.packages('reshape')
+if(!require(readr, quietly = TRUE)) install.packages('readr')
+if(!require(zoo, quietly = TRUE)) install.packages('zoo')
+if(!require(keras, quietly = TRUE)) install.packages('keras')
+```
+
+```{r loading_packages, , echo = FALSE, message = FALSE, warning = FALSE, results = 'hide'}
+pkg <- c("devtools",
+         "pander",
+         "knitr",
+         "dplyr",
+         "tidyr",
+         "stringr",
+        "lubridate",
+        "purrr",
+        "DT",
+        "tidytext",
+        "ggplot2",
+        "textstem",
+        "tm",
+        "splitstackshape",
+        "text2vec",
+        "reshape",
+        "readr",
+        "zoo",
+        "keras")
+invisible(lapply(pkg, library, character.only = TRUE))
+options(warn=0)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r sourcing_helpers}
+source("/Users/nguyenh/Desktop/cumc/deep_learning_for_nlp/3_helper_functions.R")
+```
+
+```{r loading_results}
+file_path_dyspnea_result_sentence <- file.path(params$result_folder, "dyspnea_result_sentence_level.rds")
+dyspnea_result_sentence_level <- readRDS(file_path_dyspnea_result_sentence)
+
+file_path_chest.pain_result_sentence <- file.path(params$result_folder, "chest.pain_result_sentence_level.rds")
+chest.pain_result_sentence_level <- readRDS(file_path_chest.pain_result_sentence)
+
+file_path_fatique_result_sentence <- file.path(params$result_folder, "fatique_result_sentence_level.rds")
+fatique_result_sentence_level <- readRDS(file_path_fatique_result_sentence)
+
+file_path_multilabel_result_sentence <- file.path(params$result_folder, "multilabel_result_sentence_level.rds")
+multilabel_result_sentence_level <- readRDS(file_path_multilabel_result_sentence)
+```
+
+```{r loading_history}
+file_path_dyspnea_history_sentence <- file.path(params$result_folder, "dyspnea_history_sentence_level.rds")
+dyspnea_history_sentence_level <- readRDS(file_path_dyspnea_history_sentence)
+
+file_path_chest.pain_history_sentence <- file.path(params$result_folder, "chest.pain_history_sentence_level.rds")
+chest.pain_history_sentence_level <- readRDS(file_path_chest.pain_history_sentence)
+
+file_path_fatique_history_sentence <- file.path(params$result_folder, "fatique_history_sentence_level.rds")
+fatique_history_sentence_level <- readRDS(file_path_fatique_history_sentence)
+
+file_path_multilabel_history_sentence <- file.path(params$result_folder, "multilabel_history_sentence_level.rds")
+multilabel_history_sentence_level <- readRDS(file_path_multilabel_history_sentence)
+```
+
+```{r naming}
+model_names <- c("bidirection_rnn",
+                 "lstm",
+                 "rnn",
+                 "ltsm_glove",
+                 "glove")
+
+names(dyspnea_result_sentence_level) <- model_names
+names(chest.pain_result_sentence_level) <- model_names
+names(fatique_result_sentence_level) <- model_names
+names(multilabel_result_sentence_level) <- model_names
+
+names(dyspnea_history_sentence_level) <- model_names
+names(chest.pain_history_sentence_level) <- model_names
+names(fatique_history_sentence_level) <- model_names
+names(multilabel_history_sentence_level) <- model_names
+```
+
+
+## 1. ANALYSIS - SENTENCE LEVEL
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
