@@ -63,7 +63,7 @@ options(warn=0)
 ```
 
 ```{r sourcing_helpers}
-source("/Users/nguyenh/Desktop/cumc/deep_learning_for_nlp/0_helper_functions.R")
+source("/Users/nguyenh/Desktop/cumc/deep_learning_for_nlp/20190907_helper_functions.R")
 ```
 
 ```{r data_test_creation, message = FALSE, warning = FALSE, results = 'hide'}
