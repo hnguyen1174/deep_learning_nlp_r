@@ -11,7 +11,7 @@ server <- function(input, output, session){
       filter(model_type == input$model,
              symptom_type == input$symptom) %>% 
       pull(history) %>% 
-      .[[1]] %>% 
+      .[[1]] %>%
       plot()
   )
   
@@ -19,7 +19,27 @@ server <- function(input, output, session){
   
   output$header_text <- renderUI({
     tagList(
-      h4(paste0(toupper(input$model), " FOR ", toupper(input$symptom)))
+      h4(paste0(
+        str_replace(toupper(input$model), "_", " "), 
+        " MODEL FOR ", 
+        toupper(input$symptom)))
     )
   })
+  
+  # PRINTING ACCURACY/LOSS ########################
+  
+  output$accuracy <- renderUI({
+    data_reactive <- data %>% 
+      filter(model_type == input$model,
+             symptom_type == input$symptom)
+    tagList(
+      HTML(paste0("<b>Accuracy: </b>", round(data_reactive$accuracy, 2))),
+      br(),
+      HTML(paste0("<b>Loss: </b>", round(data_reactive$loss, 2)))
+    )
+  })
+  
+  
+  
+  
 }

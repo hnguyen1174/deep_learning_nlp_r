@@ -3,6 +3,7 @@
 # LOADING PACKAGES ###########################
 ##############################################
 
+library(keras)
 library(dplyr)
 library(shiny)
 library(shinyjs)
@@ -16,6 +17,9 @@ result_dir <- "/Users/nguyenh/Desktop/cumc/deep_learning_for_nlp/final_result_fo
 file_names <- list.files(result_dir)
 results <- lapply(file_names, function(x) readRDS(file.path(result_dir, x)))
 history <- lapply(results, function(x) x$history)
+accuracy <- lapply(results, function(x) x$result$acc) %>% unlist()
+loss <- lapply(results, function(x) x$result$loss) %>% unlist()
+
 names_history <- file_names %>% 
   str_replace_all(".rds", "") %>% 
   str_replace_all("result_", "")
@@ -25,7 +29,9 @@ names_history <- file_names %>%
 ##############################################
 
 data <- tibble("model_name" = names_history,
-               "history" = history) %>% 
+               "history" = history,
+               "accuracy" = accuracy,
+               "loss" = loss) %>% 
   mutate("symptom_type" = case_when(
     str_detect(model_name, "anorexia") ~ "anorexia",
     str_detect(model_name, "chest.pain") ~ "chest.pain",
@@ -44,8 +50,7 @@ data <- tibble("model_name" = names_history,
   mutate("model_type" = case_when(
     str_detect(model_name, "deep_covnet_blstm") ~ "deep_covnet_blstm",
     str_detect(model_name, "deep_covnet_fasttext") ~ "deep_covnet_fasttext",
-    str_detect(model_name, "deep_covnet") ~ "deep_covnet",
-    str_detect(model_name, "lstm") ~ "lstm",
+    str_detect(model_name, "deep_covnet") ~ "deep_covnet"
   ))
 
 ##############################################
@@ -68,8 +73,13 @@ symptoms <- c("anorexia",
 
 models <- c("deep_covnet_blstm",
             "deep_covnet_fasttext",
-            "deep_covnet",
-            "lstm")
+            "deep_covnet")
+
+#####################################################
+# HELPER FUNCTIONS ##################################
+#####################################################
+
+
 
 
 

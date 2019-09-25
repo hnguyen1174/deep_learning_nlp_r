@@ -19,6 +19,8 @@ ui <- fluidPage(
       mainPanel(
         uiOutput("header_text"),
         hr(),
+        uiOutput("accuracy"),
+        br(),
         plotOutput("plot")
       )
   )
