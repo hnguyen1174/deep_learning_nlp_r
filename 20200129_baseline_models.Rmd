@@ -1,0 +1,911 @@
+---
+title: "BASELINE MODEL"
+author: Gary Nguyen
+output: html_notebook
+params:
+  data_folder: "/Users/huynguyen/Desktop/cumc_research/data"
+---
+
+## 1. INITIAL SETUP
+
+```{r installing_packages, echo = FALSE, message = FALSE, warning = FALSE, results = 'hide'}
+
+# Installing packages
+if(!require(devtools, quietly = TRUE)) install.packages('devtools')
+if(!require(pander, quietly = TRUE)) install.packages('pander')
+if(!require(knitr, quietly = TRUE)) install.packages('knitr')
+if(!require(dplyr, quietly = TRUE)) install.packages('dplyr')
+if(!require(tidyr, quietly = TRUE)) install.packages('tidyr')
+if(!require(stringr, quietly = TRUE)) install.packages('stringr')
+if(!require(lubridate, quietly = TRUE)) install.packages('lubridate')
+if(!require(purrr, quietly = TRUE)) install.packages('purrr')
+if(!require(DT, quietly = TRUE)) install.packages('DT')
+if(!require(tidytext, quietly = TRUE)) install.packages('tidytext')
+if(!require(ggplot2, quietly = TRUE)) install.packages('ggplot2')
+if(!require(textstem, quietly = TRUE)) install.packages('textstem')
+if(!require(tm, quietly = TRUE)) install.packages('tm')
+if(!require(splitstackshape, quietly = TRUE)) install.packages('splitstackshape')
+if(!require(text2vec, quietly = TRUE)) install.packages('text2vec')
+if(!require(reshape, quietly = TRUE)) install.packages('reshape')
+if(!require(readr, quietly = TRUE)) install.packages('readr')
+if(!require(zoo, quietly = TRUE)) install.packages('zoo')
+if(!require(keras, quietly = TRUE)) install.packages('keras')
+if(!require(ROCR, quietly = TRUE)) install.packages('ROCR')
+if(!require(caret, quietly = TRUE)) install.packages('caret')
+```
+
+```{r loading_packages, echo = FALSE, message = FALSE, warning = FALSE, results = 'hide'}
+pkg <- c("devtools",
+         "pander",
+         "knitr",
+         "dplyr",
+         "tidyr",
+         "stringr",
+         "lubridate",
+         "purrr",
+         "DT",
+         "tidytext",
+         "ggplot2",
+         "textstem",
+         "tm",
+         "splitstackshape",
+         "text2vec",
+         "reshape",
+         "readr",
+         "zoo",
+         "keras",
+         "ROCR",
+         "caret")
+invisible(lapply(pkg, library, character.only = TRUE))
+options(warn=0)
+```
+
+## 2. LOADING DATA
+
+# TEST DATA
+
+```{r data_test_creation, message = FALSE, warning = FALSE, results = 'hide'}
+
+# LOADING ORIGINAL DATASET (GOLD STANDARD)
+file_name_1 <- file.path(params$data_folder, 'gold_standard_HF_150.csv')
+clinical_notes_raw_data_1 <- file_name_1 %>% 
+  readr::read_csv() %>% 
+  # X1 is the index column, unselect this column
+  select(-X1) %>% 
+  # report_head indicates the start of a note
+  mutate(report_head = str_detect(Note, "^admission date"))
+
+# report_head contains the column report_no, a unique identifier for each report
+# the report_head dataframe contain report_no, a unique indentifier for each report
+report_head_1 <- clinical_notes_raw_data_1 %>% 
+  filter(report_head) %>% 
+  select(Note, report_head) %>% 
+  mutate(report_no = row_number()) %>% 
+  select(-report_head)
+
+clinical_notes_gold_standard_1 <- clinical_notes_raw_data_1 %>% 
+  # joint with report_head dataframe, report_no show which report each sentence belongs to
+  left_join(report_head_1, by =c("Note")) %>% 
+  mutate(report_no = na.locf(report_no),
+         # remove all numbers
+         Note = removeNumbers(Note)) %>% 
+  # remove lines with no sentences
+  filter(Note != "") %>% 
+  # remove unnecessary whitespaces
+  mutate(note_processed = str_squish(Note)) %>% 
+  transmute(note_processed,
+            cat1 = `Category 1`,
+            cat2 = `Category 2`,
+            cat3 = `Category 3`,
+            cat4 = `Category 4`,
+            cat5 = `Category 5`,
+            cat6 = `Category 6`,
+            cat7 = `Category 7`,
+            report_head,
+            report_no) %>% 
+  # Create 14 label columns (one-hot encoding)
+  transmute(note_processed,
+            report_head,
+            report_no,
+            dyspnea = if_else((cat1 == "Dyspnea")|(cat2 == "Dyspnea"), 1, 0),
+            chest.pain = if_else((cat1 == "Chest.pain")|(cat2 == "Chest.pain"), 1, 0),
+            fatique = if_else((cat1 == "Fatigue")|(cat2 == "Fatigue"), 1, 0),
+            nausea = if_else((cat1 == "Nausea")|(cat2 == "Nausea"), 1, 0),
+            cough = if_else((cat1 == "Cough")|(cat2 == "Cough"), 1, 0),
+            anorexia = if_else((cat1 == "Anorexia")|(cat2 == "Anorexia"), 1, 0),
+            confusion = if_else((cat1 == "Confusion")|(cat2 == "Confusion"), 1, 0),
+            dizziness = if_else((cat1 == "Dizziness")|(cat2 == "Dizziness"), 1, 0),
+            palpitation = if_else((cat1 == "Palpitation")|(cat2 == "Palpitation"), 1, 0),
+            peripheral.edema = if_else((cat1 == "peripheral.edema")|(cat2 == "peripheral.edema"), 1, 0),
+            weight.change = if_else((cat1 == "Weight.loss.or.weight.gain")|(cat2 == "Weight.loss.or.weight.gain"), 1, 0)) %>% 
+  # replace NA with 0
+  replace(is.na(.), 0)
+
+labeling <- function(x){
+  if_else(x > 0, 1, 0)
+}
+
+# Labels for gold_standard dataset
+label_gold_standard_1 <- clinical_notes_gold_standard_1 %>% 
+  group_by(report_no) %>% 
+  summarize_if(is.numeric, list(sum)) %>% 
+  mutate_at(vars(-report_no), list(labeling))
+
+# Full gold standard dataset
+clinical_notes_test_1 <- clinical_notes_gold_standard_1 %>% 
+  group_by(report_no) %>% 
+  summarize(note_processed = paste(note_processed, collapse = " ")) %>% 
+  merge(label_gold_standard_1, by = c("report_no")) %>% 
+  mutate(with_labels = if_else(rowSums(.[3:13]) > 0, TRUE, FALSE)) %>% 
+  transmute(note_processed,
+            report_no,
+            with_labels,
+            dyspnea,
+            chest.pain,
+            fatique,
+            nausea,
+            cough,
+            anorexia,
+            confusion,
+            dizziness,
+            palpitation,
+            peripheral.edema,
+            weight.change)
+
+# LOADING ADDITIONAL GOLD STANDARD DATASET
+file_name_2 <- file.path(params$data_folder, 'NEW GOLD ST HF SYMPTOMS_150_notes_F.csv')
+clinical_notes_test_2 <- file_name_2  %>% 
+  readr::read_csv() %>% 
+  filter(!is.na(Note)) %>% 
+  transmute(note_processed = str_squish(removeNumbers(Note)),
+            report_no = row_number() + nrow(clinical_notes_test_1),
+            dyspnea = `Dyspnea (# of simclins)`,
+            chest.pain = `Chest.pain (# of simclins)`,
+            fatique = `Fatigue (# of simclins)`,
+            nausea = `Nausea (# of simclins)`,
+            cough = `Cough (# of simclins)`,
+            anorexia = `Anorexia.decreased.appetite (# of simclins)`,
+            confusion = `Confusion (# of simclins)`,
+            dizziness = `Dizziness (# of simclins)`,
+            palpitation = `Palpitation (# of simclins)`,
+            peripheral.edema = `peripheral.edema (# of simclins)`,
+            weight.change = `Weight.loss.or.weight.gain (# of simclins)`) %>% 
+  mutate(with_labels = if_else(rowSums(.[3:13]) > 0, TRUE, FALSE)) %>% 
+  transmute(note_processed,
+            report_no,
+            with_labels,
+            dyspnea,
+            chest.pain,
+            fatique,
+            nausea,
+            cough,
+            anorexia,
+            confusion,
+            dizziness,
+            palpitation,
+            peripheral.edema,
+            weight.change)
+
+clinical_notes_test <- clinical_notes_test_1 %>% 
+  bind_rows(clinical_notes_test_2)
+
+```
+
+# TRAINING DATA
+
+```{r data_training_creation, message = FALSE, warning = FALSE, results = 'hide'}
+# SENTENCES BY SIMCLINS
+# Same logic for processing dataset as above
+file_name_simclins <- file.path(params$data_folder, 'labeled-data-2019-07-23_14-35.csv')
+simclins <- file_name_simclins %>% 
+  readr::read_csv() %>% 
+  transmute(report_no = X1,
+            note_processed = str_squish(removeNumbers(Note)),
+            with_labels = Label,
+            dyspnea = `Dyspnea (# of simclins)`,
+            chest.pain = `Chest.pain (# of simclins)`,
+            fatique = `Fatigue (# of simclins)`,
+            nausea = `Nausea (# of simclins)`,
+            cough = `Cough (# of simclins)`,
+            anorexia = `Anorexia.decreased.appetite (# of simclins)`,
+            confusion = `Confusion (# of simclins)`,
+            dizziness = `Dizziness (# of simclins)`,
+            palpitation = `Palpitation (# of simclins)`,
+            peripheral.edema = `peripheral.edema (# of simclins)`,
+            weight.change = `Weight.loss.or.weight.gain (# of simclins)`) %>% 
+        replace(is.na(.), 0)
+
+clinical_notes_training <- simclins %>% 
+  mutate_at(vars(dyspnea, 
+                 chest.pain,
+                 fatique,
+                 nausea,
+                 cough,
+                 anorexia,
+                 confusion,
+                 dizziness,
+                 palpitation,
+                 peripheral.edema,
+                 weight.change),
+            list(labeling))
+```
+
+```{r}
+clinical_notes_training <- clinical_notes_training %>% 
+  mutate(report_no = report_no + 293)
+```
+
+```{r}
+clinical_notes <- clinical_notes_test %>% 
+  bind_rows(clinical_notes_training)
+```
+
+## 3. LOGISTIC REGRESSION
+
+# MODELING
+
+```{r}
+tidy_training <- clinical_notes_training %>% 
+  unnest_tokens(word, note_processed) %>%
+  group_by(word) %>%
+  filter(n() > 10) %>%
+  ungroup()
+
+tidy_test <- clinical_notes_test %>% 
+  unnest_tokens(word, note_processed) %>%
+  group_by(word) %>%
+  filter(n() > 10) %>%
+  ungroup()
+```
+
+```{r}
+sparse_words <- clinical_notes %>% 
+  unnest_tokens(word, note_processed) %>%
+  group_by(word) %>%
+  filter(n() > 10) %>%
+  ungroup() %>% 
+  count(report_no, word) %>%
+  cast_sparse(report_no, word, n)
+```
+
+```{r}
+sparse_words_tidy_test <- sparse_words[1:293,]
+sparse_words_tidy_training <- sparse_words[294:8324,]
+```
+
+```{r}
+is_dyspnea_train <- clinical_notes_training %>% 
+  select(dyspnea) %>% 
+  mutate(dyspnea = if_else(dyspnea == 1, TRUE, FALSE)) %>% 
+  as_vector()
+```
+
+```{r}
+library(glmnet)
+library(doMC)
+registerDoMC(cores = 4)
+
+model <- cv.glmnet(sparse_words_tidy_train, is_dyspnea_train,
+  family = "binomial",
+  parallel = TRUE, keep = TRUE
+)
+```
+
+# EVALUATION
+
+```{r}
+library(broom)
+
+coefs <- model$glmnet.fit %>%
+  tidy() %>%
+  filter(lambda == model$lambda.1se)
+```
+
+```{r}
+library(forcats)
+
+coefs %>%
+  group_by(estimate > 0) %>%
+  top_n(10, abs(estimate)) %>%
+  ungroup() %>%
+  ggplot(aes(forcats::fct_reorder(term, estimate), estimate, fill = estimate > 0)) +
+  geom_col(alpha = 0.8, show.legend = FALSE) +
+  coord_flip() +
+  labs(
+    x = NULL,
+    title = "Coefficients that increase/decrease probability the most",
+    subtitle = "A clinical note"
+  )
+```
+
+```{r}
+intercept <- coefs %>%
+  filter(term == "(Intercept)") %>%
+  pull(estimate)
+
+classifications <- tidy_test %>%
+  inner_join(coefs, by = c("word" = "term")) %>%
+  group_by(report_no) %>%
+  summarize(score = sum(estimate)) %>%
+  mutate(probability = plogis(intercept + score))
+
+classifications
+```
+
+```{r}
+library(yardstick)
+
+note_classes <- classifications %>%
+  left_join(clinical_notes_test %>% 
+            as_tibble() %>%
+            select(report_no, dyspnea), by = "report_no") %>%
+  mutate(dyspnea = as.factor(dyspnea))
+
+note_classes %>%
+  roc_curve(dyspnea, probability) %>%
+  ggplot(aes(x = 1 - specificity, y = sensitivity)) +
+  geom_line(
+    color = "midnightblue",
+    size = 1.5
+  ) +
+  geom_abline(
+    lty = 2, alpha = 0.5,
+    color = "gray50",
+    size = 1.2
+  ) +
+  labs(
+    title = "ROC curve for text classification using regularized regression",
+    subtitle = "Predicting whether the patient exhibiting dyspnea or not."
+  )
+```
+
+```{r}
+note_classes %>%
+  roc_auc(dyspnea, probability)
+```
+
+```{r}
+note_classes %>%
+  mutate(
+    prediction = case_when(
+      probability > 0.5 ~ "Dyspnea",
+      TRUE ~ "Other Symptoms"
+    ),
+    prediction = as.factor(prediction)
+  ) %>%
+  mutate(dyspnea = as.integer(dyspnea),
+         dyspnea = if_else(dyspnea == 1, "Dyspnea", "Other Symptoms"),
+         dyspnea = as.factor(dyspnea)) %>% 
+  f_meas(dyspnea, prediction)
+```
+
+```{r}
+note_classes %>%
+  mutate(
+    prediction = case_when(
+      probability > 0.5 ~ "Dyspnea",
+      TRUE ~ "Other Symptoms"
+    ),
+    prediction = as.factor(prediction)
+  ) %>%
+  mutate(dyspnea = as.integer(dyspnea),
+         dyspnea = if_else(dyspnea == 1, "Dyspnea", "Other Symptoms"),
+         dyspnea = as.factor(dyspnea)) %>% 
+  conf_mat(dyspnea, prediction)
+```
+
+# CHEST PAIN
+
+```{r}
+is_chestpain_train <- clinical_notes_training %>% 
+  select(chest.pain) %>% 
+  mutate(chest.pain = if_else(chest.pain == 1, TRUE, FALSE)) %>% 
+  as_vector()
+
+model_chest_pain <- cv.glmnet(sparse_words_tidy_train, is_chestpain_train,
+  family = "binomial",
+  parallel = TRUE, keep = TRUE
+)
+```
+
+```{r}
+coefs <- model_chest_pain$glmnet.fit %>%
+  tidy() %>%
+  filter(lambda == model_chest_pain$lambda.1se)
+
+intercept <- coefs %>%
+  filter(term == "(Intercept)") %>%
+  pull(estimate)
+
+classifications <- tidy_test %>%
+  inner_join(coefs, by = c("word" = "term")) %>%
+  group_by(report_no) %>%
+  summarize(score = sum(estimate)) %>%
+  mutate(probability = plogis(intercept + score))
+
+note_classes <- classifications %>%
+  left_join(clinical_notes_test %>% 
+            as_tibble() %>%
+            select(report_no, chest.pain), by = "report_no") %>%
+  mutate(chest.pain = as.factor(chest.pain))
+```
+
+```{r}
+note_classes %>%
+  mutate(
+    prediction = case_when(
+      probability > 0.5 ~ "Chest_Pain",
+      TRUE ~ "Other_Symptoms"
+    ),
+    prediction = as.factor(prediction)
+  ) %>%
+  mutate(chest.pain = as.integer(chest.pain),
+         chest.pain = if_else(chest.pain == 1, "Chest_Pain", "Other_Symptoms"),
+         chest.pain = as.factor(chest.pain)) %>% 
+  f_meas(chest.pain, prediction)
+```
+
+# FATIQUE
+
+```{r}
+is_fatique_train <- clinical_notes_training %>% 
+  select(fatique) %>% 
+  mutate(fatique = if_else(fatique == 1, TRUE, FALSE)) %>% 
+  as_vector()
+
+model_fatique <- cv.glmnet(sparse_words_tidy_train, is_fatique_train,
+  family = "binomial",
+  parallel = TRUE, keep = TRUE
+)
+```
+
+```{r}
+coefs <- model_fatique$glmnet.fit %>%
+  tidy() %>%
+  filter(lambda == model_fatique$lambda.1se)
+
+intercept <- coefs %>%
+  filter(term == "(Intercept)") %>%
+  pull(estimate)
+
+classifications <- tidy_test %>%
+  inner_join(coefs, by = c("word" = "term")) %>%
+  group_by(report_no) %>%
+  summarize(score = sum(estimate)) %>%
+  mutate(probability = plogis(intercept + score))
+
+note_classes <- classifications %>%
+  left_join(clinical_notes_test %>% 
+            as_tibble() %>%
+            select(report_no, fatique), by = "report_no") %>%
+  mutate(fatique = as.factor(fatique))
+```
+
+```{r}
+note_classes %>%
+  mutate(
+    prediction = case_when(
+      probability > 0.5 ~ "Fatigue",
+      TRUE ~ "Other_Symptoms"
+    ),
+    prediction = as.factor(prediction)
+  ) %>%
+  mutate(fatique = as.integer(fatique),
+         fatique = if_else(fatique == 1, "Fatigue", "Other_Symptoms"),
+         fatique = as.factor(fatique)) %>% 
+  f_meas(fatique, prediction)
+```
+
+# NAUSEA
+
+```{r}
+is_nausea_train <- clinical_notes_training %>% 
+  select(nausea) %>% 
+  mutate(nausea = if_else(nausea == 1, TRUE, FALSE)) %>% 
+  as_vector()
+
+model_nausea <- cv.glmnet(sparse_words_tidy_train, is_nausea_train,
+  family = "binomial",
+  parallel = TRUE, keep = TRUE
+)
+```
+
+```{r}
+coefs <- model_nausea$glmnet.fit %>%
+  tidy() %>%
+  filter(lambda == model_nausea$lambda.1se)
+
+intercept <- coefs %>%
+  filter(term == "(Intercept)") %>%
+  pull(estimate)
+
+classifications <- tidy_test %>%
+  inner_join(coefs, by = c("word" = "term")) %>%
+  group_by(report_no) %>%
+  summarize(score = sum(estimate)) %>%
+  mutate(probability = plogis(intercept + score))
+
+note_classes <- classifications %>%
+  left_join(clinical_notes_test %>% 
+            as_tibble() %>%
+            select(report_no, nausea), by = "report_no") %>%
+  mutate(nausea = as.factor(nausea))
+```
+
+```{r}
+note_classes %>%
+  mutate(
+    prediction = case_when(
+      probability > 0.5 ~ "Nausea",
+      TRUE ~ "Other_Symptoms"
+    ),
+    prediction = as.factor(prediction)
+  ) %>%
+  mutate(nausea = as.integer(nausea),
+         nausea = if_else(nausea == 1, "Nausea", "Other_Symptoms"),
+         nausea = as.factor(nausea)) %>% 
+  f_meas(nausea, prediction)
+```
+
+# COUGH
+
+```{r}
+is_cough_train <- clinical_notes_training %>% 
+  select(cough) %>% 
+  mutate(cough = if_else(cough == 1, TRUE, FALSE)) %>% 
+  as_vector()
+
+model_cough <- cv.glmnet(sparse_words_tidy_train, is_cough_train,
+  family = "binomial",
+  parallel = TRUE, keep = TRUE
+)
+```
+
+```{r}
+coefs <- model_cough$glmnet.fit %>%
+  tidy() %>%
+  filter(lambda == model_cough$lambda.1se)
+
+intercept <- coefs %>%
+  filter(term == "(Intercept)") %>%
+  pull(estimate)
+
+classifications <- tidy_test %>%
+  inner_join(coefs, by = c("word" = "term")) %>%
+  group_by(report_no) %>%
+  summarize(score = sum(estimate)) %>%
+  mutate(probability = plogis(intercept + score))
+
+note_classes <- classifications %>%
+  left_join(clinical_notes_test %>% 
+            as_tibble() %>%
+            select(report_no, cough), by = "report_no") %>%
+  mutate(cough = as.factor(cough))
+```
+
+```{r}
+note_classes %>%
+  mutate(
+    prediction = case_when(
+      probability > 0.5 ~ "Cough",
+      TRUE ~ "Other_Symptoms"
+    ),
+    prediction = as.factor(prediction)
+  ) %>%
+  mutate(cough = as.integer(cough),
+         cough = if_else(cough == 1, "Cough", "Other_Symptoms"),
+         cough = as.factor(cough)) %>% 
+  f_meas(cough, prediction)
+```
+
+# DIZZINESS
+
+```{r}
+is_dizziness_train <- clinical_notes_training %>% 
+  select(dizziness) %>% 
+  mutate(dizziness = if_else(dizziness == 1, TRUE, FALSE)) %>% 
+  as_vector()
+
+model_dizziness <- cv.glmnet(sparse_words_tidy_train, is_dizziness_train,
+  family = "binomial",
+  parallel = TRUE, keep = TRUE
+)
+```
+
+```{r}
+coefs <- model_dizziness$glmnet.fit %>%
+  tidy() %>%
+  filter(lambda == model_dizziness$lambda.1se)
+
+intercept <- coefs %>%
+  filter(term == "(Intercept)") %>%
+  pull(estimate)
+
+classifications <- tidy_test %>%
+  inner_join(coefs, by = c("word" = "term")) %>%
+  group_by(report_no) %>%
+  summarize(score = sum(estimate)) %>%
+  mutate(probability = plogis(intercept + score))
+
+note_classes <- classifications %>%
+  left_join(clinical_notes_test %>% 
+            as_tibble() %>%
+            select(report_no, dizziness), by = "report_no") %>%
+  mutate(dizziness = as.factor(dizziness))
+```
+
+```{r}
+note_classes %>%
+  mutate(
+    prediction = case_when(
+      probability > 0.5 ~ "Dizziness",
+      TRUE ~ "Other_Symptoms"
+    ),
+    prediction = as.factor(prediction)
+  ) %>%
+  mutate(dizziness = as.integer(dizziness),
+         dizziness = if_else(dizziness == 1, "Dizziness", "Other_Symptoms"),
+         dizziness = as.factor(dizziness)) %>% 
+  f_meas(dizziness, prediction)
+```
+
+# CONFUSION
+
+```{r}
+is_confusion_train <- clinical_notes_training %>% 
+  select(confusion) %>% 
+  mutate(confusion = if_else(confusion == 1, TRUE, FALSE)) %>% 
+  as_vector()
+
+model_confusion <- cv.glmnet(sparse_words_tidy_train, is_confusion_train,
+  family = "binomial",
+  parallel = TRUE, keep = TRUE
+)
+```
+
+```{r}
+coefs <- model_confusion$glmnet.fit %>%
+  tidy() %>%
+  filter(lambda == model_confusion$lambda.1se)
+
+intercept <- coefs %>%
+  filter(term == "(Intercept)") %>%
+  pull(estimate)
+
+classifications <- tidy_test %>%
+  inner_join(coefs, by = c("word" = "term")) %>%
+  group_by(report_no) %>%
+  summarize(score = sum(estimate)) %>%
+  mutate(probability = plogis(intercept + score))
+
+note_classes <- classifications %>%
+  left_join(clinical_notes_test %>% 
+            as_tibble() %>%
+            select(report_no, confusion), by = "report_no") %>%
+  mutate(confusion = as.factor(confusion))
+```
+
+```{r}
+note_classes %>%
+  mutate(
+    prediction = case_when(
+      probability > 0.5 ~ "Confusion",
+      TRUE ~ "Other_Symptoms"
+    ),
+    prediction = as.factor(prediction)
+  ) %>%
+  mutate(confusion = as.integer(confusion),
+         confusion = if_else(confusion == 1, "Confusion", "Other_Symptoms"),
+         confusion = as.factor(confusion)) %>% 
+  f_meas(confusion, prediction)
+```
+
+## 4. RANDOM FOREST
+
+```{r}
+library(tictoc)
+tic()
+rf_20 <- train(x = as.matrix(sparse_words_tidy_training),
+               y = factor(clinical_notes_training$dyspnea),
+               method = "ranger",
+               num.trees = 20,
+               importance = "impurity",
+               trControl = trainControl(method = "oob"))
+toc()
+```
+
+```{r}
+prediction <- predict(rf_20, newdata = as.matrix(sparse_words_tidy_test))
+```
+
+```{r}
+generate_metrics <- function(y_predicted,
+                             y_true){
+  
+  accuracy <- confusionMatrix(as.factor(y_predicted), 
+                              as.factor(y_true), 
+                              positive = "1")$overall[1]
+  
+  precision <- posPredValue(as.factor(y_predicted), 
+                            as.factor(y_true), 
+                            positive="1")
+  
+  recall <- sensitivity(as.factor(y_predicted), 
+                        as.factor(y_true), 
+                        positive="1")
+  
+  F1 <- (2 * precision * recall) / (precision + recall)
+  
+  print(paste("Accuracy:", round(accuracy, 2)))
+  print(paste("Precision:", round(precision, 2)))
+  print(paste("Recall:", round(recall, 2)))
+  print(paste("F1:", round(F1, 2)))
+  
+  list("accuracy" = accuracy,
+       "precision" = precision,
+       "recall" = recall,
+       "F1" = F1)
+}
+```
+
+```{r}
+generate_metrics(prediction,
+                 clinical_notes_test$dyspnea)
+```
+
+# CHEST PAIN
+
+```{r}
+library(tictoc)
+tic()
+rf_20_chest_pain <- train(x = as.matrix(sparse_words_tidy_training),
+                          y = factor(clinical_notes_training$chest.pain),
+                          method = "ranger",
+                          num.trees = 20,
+                          importance = "impurity",
+                          trControl = trainControl(method = "oob"))
+toc()
+```
+
+```{r}
+prediction_cp <- predict(rf_20_chest_pain, newdata = as.matrix(sparse_words_tidy_test))
+```
+
+```{r}
+generate_metrics(prediction_cp,
+                 clinical_notes_test$chest.pain)
+```
+
+# FATIQUE
+
+```{r}
+library(tictoc)
+tic()
+rf_20_f <- train(x = as.matrix(sparse_words_tidy_training),
+                 y = factor(clinical_notes_training$fatique),
+                 method = "ranger",
+                 num.trees = 20,
+                 importance = "impurity",
+                 trControl = trainControl(method = "oob"))
+toc()
+```
+
+```{r}
+prediction_f <- predict(rf_20_f, newdata = as.matrix(sparse_words_tidy_test))
+```
+
+```{r}
+generate_metrics(prediction_f,
+                 clinical_notes_test$fatique)
+```
+
+# NAUSEA
+
+```{r}
+library(tictoc)
+tic()
+rf_20_n <- train(x = as.matrix(sparse_words_tidy_training),
+                 y = factor(clinical_notes_training$nausea),
+                 method = "ranger",
+                 num.trees = 20,
+                 importance = "impurity",
+                 trControl = trainControl(method = "oob"))
+toc()
+```
+
+```{r}
+prediction_n <- predict(rf_20_n, newdata = as.matrix(sparse_words_tidy_test))
+```
+
+```{r}
+generate_metrics(prediction_n,
+                 clinical_notes_test$fatique)
+```
+
+# COUGH
+
+```{r}
+tic()
+rf_20_c <- train(x = as.matrix(sparse_words_tidy_training),
+                 y = factor(clinical_notes_training$cough),
+                 method = "ranger",
+                 num.trees = 20,
+                 importance = "impurity",
+                 trControl = trainControl(method = "oob"))
+toc()
+```
+
+```{r}
+prediction_c <- predict(rf_20_c, newdata = as.matrix(sparse_words_tidy_test))
+```
+
+```{r}
+generate_metrics(prediction_c,
+                 clinical_notes_test$cough)
+```
+
+# DIZZINESS
+
+```{r}
+tic()
+rf_20_d <- train(x = as.matrix(sparse_words_tidy_training),
+                 y = factor(clinical_notes_training$dizziness),
+                 method = "ranger",
+                 num.trees = 20,
+                 importance = "impurity",
+                 trControl = trainControl(method = "oob"))
+toc()
+```
+
+```{r}
+prediction_d <- predict(rf_20_d, newdata = as.matrix(sparse_words_tidy_test))
+```
+
+```{r}
+generate_metrics(prediction_d,
+                 clinical_notes_test$dizziness)
+```
+
+# CONFUSION
+
+```{r}
+tic()
+rf_20_conf <- train(x = as.matrix(sparse_words_tidy_training),
+                    y = factor(clinical_notes_training$confusion),
+                    method = "ranger",
+                    num.trees = 20,
+                    importance = "impurity",
+                    trControl = trainControl(method = "oob"))
+toc()
+```
+
+```{r}
+prediction_conf <- predict(rf_20_conf, newdata = as.matrix(sparse_words_tidy_test))
+```
+
+```{r}
+generate_metrics(prediction_conf,
+                 clinical_notes_test$confusion)
+```
+
+# EDEMA
+
+```{r}
+tic()
+rf_20_conf_pe <- train(x = as.matrix(sparse_words_tidy_training),
+                    y = factor(clinical_notes_training$peripheral.edema),
+                    method = "ranger",
+                    num.trees = 20,
+                    importance = "impurity",
+                    trControl = trainControl(method = "oob"))
+toc()
+```
+
+```{r}
+prediction_pe <- predict(rf_20_conf_pe, newdata = as.matrix(sparse_words_tidy_test))
+```
+
+```{r}
+generate_metrics(prediction_pe,
+                 clinical_notes_test$peripheral.edema)
+```
