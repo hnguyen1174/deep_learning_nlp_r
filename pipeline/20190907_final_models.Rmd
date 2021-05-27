@@ -3,9 +3,9 @@ title: "FINAL MODEL"
 author: Gary Nguyen
 output: html_notebook
 params:
-  data_folder: "/Users/nguyenh/Desktop/cumc/deep_learning_for_nlp/data"
-  model_folder: "/Users/nguyenh/Desktop/cumc/deep_learning_for_nlp/final_model_folder"
-  result_folder: "/Users/nguyenh/Desktop/cumc/deep_learning_for_nlp/final_result_folder"
+  data_folder: "../data"
+  model_folder: "../final_model_folder"
+  result_folder: "../final_result_folder"
 ---
 
 ## 0. INITIAL SETUP
@@ -63,7 +63,7 @@ options(warn=0)
 ```
 
 ```{r sourcing_helpers}
-source("/Users/nguyenh/Desktop/cumc/deep_learning_for_nlp/20190907_helper_functions.R")
+source("20190907_helper_functions.R")
 ```
 
 ```{r data_test_creation, message = FALSE, warning = FALSE, results = 'hide'}

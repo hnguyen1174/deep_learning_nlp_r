@@ -4,3 +4,5 @@
 .Ruserdata
 
 data/*
+final_result_folder/*
+final_model_folder/*
