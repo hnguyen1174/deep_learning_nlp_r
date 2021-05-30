@@ -32,3 +32,6 @@ if st.button('add'):
 
 #---------------------------------#
 # Main panel
+
+# Displays the dataset
+st.subheader('')
