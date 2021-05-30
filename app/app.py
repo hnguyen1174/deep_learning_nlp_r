@@ -36,7 +36,10 @@ This application is built to detect symptoms in an EHR notes, including dyspnea,
 # Main panel
 
 # Displays the dataset
-user_input = st.text_input("Please input EHR text here:", "The patient has nausea and chest pain.")
+user_input = st.text_input(
+    "Please input EHR text here:", 
+    "The patient has persistent cough, nausea and chest pain."
+    )
 
 
 if user_input is not None and st.button('Compute'):
