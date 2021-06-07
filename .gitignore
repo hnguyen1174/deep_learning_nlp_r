@@ -6,3 +6,6 @@
 data/*
 final_result_folder/*
 final_model_folder/*
+models/*
+../.DS_Store
+.DS_Store
