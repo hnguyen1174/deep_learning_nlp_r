@@ -216,6 +216,7 @@ for (s in symptoms) {
     ggtitle(glue('Density Plot of Number of Sentence, Stratified by {str_to_title(s)}.'))
   
   print(p)
+  ggsave(file.path(here::here(), glue('figures/sent_density_{s}.png')), p)
 }
 ```
 
