@@ -1,9 +1,6 @@
 ---
 title: "Text Processing"
 author: Gary Nguyen
-output: html_notebook
-params:
-  data_folder: "/Users/nguyenh/Desktop/cumc/deep_learning_for_nlp/data"
 ---
 
 ## 0. INITIAL SETUP
@@ -30,122 +27,50 @@ if(!require(reshape, quietly = TRUE)) install.packages('reshape')
 if(!require(readr, quietly = TRUE)) install.packages('readr')
 if(!require(zoo, quietly = TRUE)) install.packages('zoo')
 if(!require(keras, quietly = TRUE)) install.packages('keras')
-```
+if(!require(zeallot, quietly = TRUE)) install.packages('zeallot')
+if(!require(glue, quietly = TRUE)) install.packages('glue')
 
-```{r loading_packages, , echo = FALSE, message = FALSE, warning = FALSE, results = 'hide'}
-pkg <- c("devtools",
-         "pander",
-         "knitr",
-         "dplyr",
-         "tidyr",
-         "stringr",
-        "lubridate",
-        "purrr",
-        "DT",
-        "tidytext",
-        "ggplot2",
-        "textstem",
-        "tm",
-        "splitstackshape",
-        "text2vec",
-        "reshape",
-        "readr",
-        "zoo",
-        "keras")
+pkg <- c(
+  'devtools',
+  'pander',
+  'tidyverse',
+  'lubridate',
+  'DT',
+  'tidytext',
+  'textstem',
+  'tm',
+  'splitstackshape',
+  'text2vec',
+  'reshape',
+  'zoo',
+  'keras',
+  'zeallot',
+  'glue'
+)
+
 invisible(lapply(pkg, library, character.only = TRUE))
 options(warn=0)
+
+devtools::load_all()
 ```
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-
+```{r data_dir}
+data_dir <- file.path(here::here(), 'data')
+```
 
 ## 1. PROCESSING GOLD-STANDARD DATASET
 
 ```{r loading_data_gold_standard, message = FALSE, warning = FALSE, results = 'hide'}
-
-# LOADING ORIGINAL DATASET (GOLD STANDARD)
-
-file_name <- file.path(params$data_folder, 'gold_standard_HF_150.csv')
+file_name <- file.path(data_dir, 'gold_standard_HF_150.csv')
 
 gold_standard_raw_data <- file_name %>% 
-  readr::read_csv() %>% 
-  # X1 is the index column, unselect this column
-  select(-X1) %>% 
-  # report_head indicates the start of a note
-  mutate(report_head = str_detect(Note, "^admission date"))
+  readr::read_csv()
 
-# "report_head" variable contains the column report_no, a unique identifier for each report
-# the report_head dataframe contain report_no, a unique indentifier for each report
-report_head_gold_standard <- gold_standard_raw_data %>% 
-  filter(report_head) %>% 
-  select(Note, report_head) %>% 
-  mutate(report_no = row_number()) %>% 
-  select(-report_head)
-
-######################################################
-# MAIN GOLD-STANDARD DATASET
-# SENTENCE LEVEL
-######################################################
-gold_standard_sentence_level <- gold_standard_raw_data %>% 
-  # joint with report_head dataframe, report_no show which report each sentence belongs to
-  left_join(report_head_gold_standard, by =c("Note")) %>% 
-  mutate(report_no = na.locf(report_no),
-         # remove all numbers
-         Note = removeNumbers(Note)) %>% 
-  # remove lines with no sentences
-  filter(Note != "") %>% 
-  # remove unnecessary whitespaces
-  mutate(note_processed = str_squish(Note)) %>% 
-  transmute(note_processed,
-            cat1 = `Category 1`,
-            cat2 = `Category 2`,
-            cat3 = `Category 3`,
-            cat4 = `Category 4`,
-            cat5 = `Category 5`,
-            cat6 = `Category 6`,
-            cat7 = `Category 7`,
-            report_head,
-            report_no) %>% 
-  # Create 14 label columns (one-hot encoding)
-  transmute(note_processed,
-            report_head,
-            report_no,
-            dyspnea = if_else((cat1 == "Dyspnea")|(cat2 == "Dyspnea"), 1, 0),
-            confusions = if_else((cat1 == "Confusion")|(cat2 == "Confusion"), 1, 0),
-            fatique = if_else((cat1 == "Fatigue")|(cat2 == "Fatigue"), 1, 0),
-            cough = if_else((cat1 == "Cough")|(cat2 == "Cough"), 1, 0),
-            peripheral.edema = if_else((cat1 == "peripheral.edema")|(cat2 == "peripheral.edema"), 1, 0),
-            anorexia = if_else((cat1 == "Anorexia")|(cat2 == "Anorexia"),1,0),
-            weight.change = if_else((cat1 == "Weight.loss.or.weight.gain")|(cat2 == "Weight.loss.or.weight.gain"), 1, 0),
-            nausea = if_else((cat1 == "Nausea")|(cat2 == "Nausea"), 1, 0),
-            chest.pain = if_else((cat1 == "Chest.pain")|(cat2 == "Chest.pain"), 1, 0),
-            palpitation = if_else((cat1 == "Palpitation")|(cat2 == "Palpitation"), 1, 0),
-            dizziness = if_else((cat1 == "Dizziness")|(cat2 == "Dizziness"), 1, 0)) %>% 
-  # replace NA with 0
-  replace(is.na(.), 0) %>% 
-  mutate(with_labels = if_else(rowSums(.[4:14]) > 0, TRUE, FALSE))
-
-######################################################
-# MAIN GOLD-STANDARD DATASET
-# NOTE LEVEL
-######################################################
-# Labeling functions
-labeling <- function(x){
-  if_else(x > 0, 1, 0)
-}
-# Labels: if a note contain at least one sentence with a label, the note has that label
-note_level_labels <- gold_standard_sentence_level %>% 
-  group_by(report_no) %>% 
-  summarize_if(is.numeric, list(sum)) %>% 
-  mutate_at(vars(-report_no), labeling)
-# Note level data
-gold_standard_note_level <- gold_standard_sentence_level %>% 
-  group_by(report_no) %>% 
-  summarize(note_processed = paste(note_processed, collapse = " ")) %>% 
-  left_join(note_level_labels, by =c("report_no"))
+c(gold_standard_sentence_level, gold_standard_note_level) %<-% prc_gold_standard(gold_standard_raw_data)
 ```
 
 ```{r data_gold_standard_basic_stats_1, message = FALSE, warning = FALSE, results = 'hide'}
@@ -154,12 +79,12 @@ gold_standard_note_level <- gold_standard_sentence_level %>%
 # AND NUMBER OF SENTENCE PER NOTE
 ######################################################
 # There are 17,246 sentences in the gold standard dataset
-gold_standard_num_sentence <- gold_standard_sentence_level %>% 
-  nrow()
+gold_standard_num_sentence <- gold_standard_sentence_level %>% nrow()
+print(glue('The number of sentences in the gold-standard dataset is {gold_standard_num_sentence}.'))
 
 # There are 143 notes 
-gold_standard_num_note <- gold_standard_note_level %>% 
-  nrow()
+gold_standard_num_note <- gold_standard_note_level %>% nrow()
+print(glue('The number of notes in the gold-standard dataset is {gold_standard_num_sentence}.'))
 
 gold_standard_sentence_level %>% 
   group_by(report_no) %>% 
@@ -237,74 +162,10 @@ gold_standard_note_level %>%
 ## 2. PROCESSING TRAINING DATASET
 
 ```{r loading_data_training, message = FALSE, warning = FALSE, results = 'hide'}
-# LOADING ORIGINAL DATASET (GOLD STANDARD)
+file_name_training <- file.path(data_dir, 'labeled-data-2019-08-02_12-51.csv')
 
-file_name_training <- file.path(params$data_folder, 'labeled-data-2019-08-02_12-51.csv')
-
-training_raw_data <- file_name_training %>% 
-  readr::read_csv() %>% 
-  # X1 is the index column, unselect this column
-  select(-X1) %>% 
-  # report_head indicates the start of a note
-  mutate(report_head = str_detect(Note, "^admission date"))
-
-# "report_head" variable contains the column report_no, a unique identifier for each report
-# the report_head dataframe contain report_no, a unique indentifier for each report
-report_head_training <- training_raw_data %>% 
-  filter(report_head) %>% 
-  select(Note, report_head) %>% 
-  mutate(report_no = row_number()) %>% 
-  select(-report_head)
-
-######################################################
-# MAIN TRAINING DATASET
-# SENTENCE LEVEL
-######################################################
-training_sentence_level <- training_raw_data %>% 
-  # joint with report_head dataframe, report_no show which report each sentence belongs to
-  left_join(report_head_training, by =c("Note")) %>% 
-  mutate(report_no = na.locf(report_no),
-         # remove all numbers
-         Note = removeNumbers(Note)) %>% 
-  # remove lines with no sentences
-  mutate(note_processed = str_squish(Note)) %>% 
-  filter(note_processed != "") %>% 
-  # remove unnecessary whitespaces
-  transmute(note_processed,
-            report_head,
-            report_no,
-            dyspnea = `Dyspnea (# of simclins)`,
-            confusions = `Confusion (# of simclins)`,
-            fatique = `Fatigue (# of simclins)`,
-            cough = `Cough (# of simclins)`,
-            peripheral.edema = `peripheral.edema (# of simclins)`,
-            anorexia = `Anorexia.decreased.appetite (# of simclins)`,
-            weight.change = `Weight.loss.or.weight.gain (# of simclins)`,
-            nausea = `Nausea (# of simclins)`,
-            chest.pain = `Chest.pain (# of simclins)`,
-            palpitation = `Palpitation (# of simclins)`,
-            dizziness = `Dizziness (# of simclins)`) %>% 
-  # replace NA with 0
-  replace(is.na(.), 0) %>% 
-  mutate_at(vars(-c(note_processed,
-                 report_head,
-                 report_no)), labeling) %>% 
-  mutate(with_labels = if_else(rowSums(.[4:14]) > 0, TRUE, FALSE))
-
-######################################################
-# NOTE LEVEL
-######################################################
-# Labeling functions
-# Labels: if a note contain at least one sentence with a label, the note has that label
-training_note_level_labels <- training_sentence_level %>% 
-  group_by(report_no) %>% 
-  summarize_if(is.numeric, list(sum)) %>% 
-  mutate_at(vars(-report_no), labeling)
-# Note level data
-training_note_level <- training_sentence_level %>% 
-  group_by(report_no) %>% 
-  summarize(note_processed = paste(note_processed, collapse = " ")) %>% 
-  left_join(training_note_level_labels, by =c("report_no"))
+training_raw_data <- file_name_training %>% readr::read_csv()
+c(training_sentence_level, training_note_level) %<-% prc_training_data(training_raw_data)
 ```
 
 ```{r data_training_basic_stats_1, message = FALSE, warning = FALSE, results = 'hide'}
@@ -313,18 +174,18 @@ training_note_level <- training_sentence_level %>%
 # AND NUMBER OF SENTENCE PER NOTE
 ######################################################
 # There are 729,059 sentences in the gold standard dataset
-training_num_sentence <- training_sentence_level %>% 
-  nrow()
+training_num_sentence <- training_sentence_level %>% nrow()
+print(glue('The number of sentences in the training dataset is {training_num_sentence}.'))
 
 # There are 7,773 notes 
-training_num_note <- training_note_level %>% 
-  nrow()
+training_num_note <- training_note_level %>% nrow()
+print(glue('The number of notes in the training dataset is {training_num_note}.'))
 
 training_sentence_level %>% 
   group_by(report_no) %>% 
   summarize(num_sentence = n()) %>% 
   ggplot(aes(x = report_no, y = num_sentence)) + 
-  geom_bar(stat="identity")
+  geom_bar(stat = 'identity')
 
 # 0%  25%  50%  75% 100% 
 #  1   60   85  118  553
@@ -333,6 +194,29 @@ training_num_sentence <- training_sentence_level %>%
   summarize(num_sentence = n()) %>% 
   pull(num_sentence)
 quantile(training_num_sentence)  
+```
+
+```{r}
+symptoms <- training_sentence_level %>% colnames() %>% 
+  .[!. %in% c('note_processed', 'report_head',
+              'report_no', 'with_labels')]
+
+for (s in symptoms) {
+  
+  p <- training_sentence_level %>% 
+    dplyr::rename(selected_symptom = s) %>% 
+    group_by(report_no, selected_symptom) %>% 
+    summarize(num_sentence = n()) %>% 
+    ungroup() %>% 
+    mutate(selected_symptom = as.character(selected_symptom)) %>% 
+    ggplot(aes(x = report_no, fill = selected_symptom)) +
+    geom_density(alpha = 0.5, aes(fill = factor(selected_symptom))) + 
+    scale_x_continuous(breaks = scales::pretty_breaks(n = 10)) + 
+    theme_hc() +
+    ggtitle(glue('Density Plot of Number of Sentence, Stratified by {str_to_title(s)}.'))
+  
+  print(p)
+}
 ```
 
 ```{r data_training_basic_stats_2, message = FALSE, warning = FALSE, results = 'hide'}

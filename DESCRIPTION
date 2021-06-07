@@ -1,0 +1,23 @@
+Package: EHRSymptomDetector
+Title: EHR Symtom Detector Project
+Version: 0.1.0
+Authors@R: person("Gary Nguyen",  email = "han2114@columbia.edu", role = c("aut", "cre"))
+Description: This package contains the analyses and models to detect symptoms in EHR notes
+License: MIT
+Depends: R (>= 3.3.0)
+Imports: 
+  dplyr,
+  ggplot2,
+  readr,
+  stringr,
+  jsonlite,
+  tibble,
+  purrr,
+  tidyr,
+  tidyselect,
+  lubridate,
+  stats
+ByteCompile: true
+Encoding: UTF-8
+LazyData: true
+RoxygenNote: 7.1.0
